@@ -16,7 +16,6 @@ AB_OTA_PARTITIONS += \
     vbmeta_system \
     odm \
     vendor_boot
-BOARD_USES_RECOVERY_AS_BOOT := true
 
 # fastbootd
 PRODUCT_PACKAGES += \
