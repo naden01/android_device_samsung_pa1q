@@ -1,0 +1,4 @@
+ro.display.series=Samsung S25
+ro.product.board=sun
+ro.board.platform=sun
+ro.boot.dynamic_partitions=true
