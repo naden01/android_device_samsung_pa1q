@@ -5,3 +5,6 @@
 # USB
 vendor.usb.use_ffs_mtp=1
 persist.sys.usb.config=mtp,adb
+
+# USB MTP
+ro.sys.usb.storage.type=mtp
