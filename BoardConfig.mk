@@ -1,5 +1,6 @@
-# PRODUCT_COPY_FILES directives.
+# for building
 BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
+ALLOW_MISSING_DEPENDENCIES := true
 
 DEVICE_PATH := device/samsung/pa1q
 
