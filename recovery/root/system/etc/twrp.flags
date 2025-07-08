@@ -32,4 +32,4 @@
 /cache              ext4      /dev/block/bootdevice/by-name/cache              flags=display="Cache";backup=1
 
 # OTG
-/usb-otg        auto                /dev/block/sdg1                    flags=display="USB-OTG";storage;wipeingui;removable
+/usb-otg        auto          /dev/block/sde      /dev/block/sde1                    flags=display="USB-OTG";storage;wipeingui;removable
