@@ -58,4 +58,4 @@ odm	/odm	erofs	ro	wait,slotselect,logical,first_stage_mount
 #/dev/block/bootdevice/by-name/persist                   /mnt/vendor/persist    ext4    noatime,nosuid,nodev,barrier=1                       wait
 
 #RECOVERY
-/dev/block/bootdevice/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
+#/dev/block/bootdevice/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
