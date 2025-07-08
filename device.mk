@@ -16,6 +16,7 @@ AB_OTA_PARTITIONS += \
     vbmeta_system \
     odm \
     vendor_boot
+PRODUCT_PROPERTY_OVERRIDES += ro.twrp.vendor_boot=true
 
 # fastbootd
 PRODUCT_PACKAGES += \
