@@ -54,8 +54,5 @@ odm	/odm	erofs	ro	wait,slotselect,logical,first_stage_mount
 /dev/block/bootdevice/by-name/userdata	/data	f2fs	noatime,nosuid,nodev,discard,usrquota,grpquota,fsync_mode=nobarrier,reserve_root=32768,resgid=5678	latemount,wait,check,formattable,quota,reservedsize=128M,sysfs_path=/sys/devices/platform/soc/1d84000.ufshc,checkpoint=fs,fscompress,ddp
 #/dev/block/bootdevice/by-name/cache	/cache	ext4	noatime,nosuid,nodev,noauto_da_alloc,discard,journal_checksum,data=ordered,errors=panic	wait,check
 
-# Persist
-#/dev/block/bootdevice/by-name/persist                   /mnt/vendor/persist    ext4    noatime,nosuid,nodev,barrier=1                       wait
-
 #RECOVERY
 #/dev/block/bootdevice/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
