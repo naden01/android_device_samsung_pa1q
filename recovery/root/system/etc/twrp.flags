@@ -15,6 +15,7 @@
 /boot               emmc      /dev/block/bootdevice/by-name/boot               flags=display="Boot";flashimg=1;backup=1
 /init_boot          emmc      /dev/block/bootdevice/by-name/init_boot          flags=display="init_Boot";flashimg=1;backup=1
 /vendor_boot        emmc      /dev/block/bootdevice/by-name/vendor_boot        flags=display="init_Boot";flashimg=1;backup=1
+/persist		    emmc	  /dev/block/by-name/persist			           flags=display=persist;backup;flashimg
 #/efs                ext4      /dev/block/bootdevice/by-name/sec_efs            flags=display="efs";backup=1
 #/sec_efs            ext4      /dev/block/bootdevice/by-name/sec_efs            flags=display="sec_efs";backup=1
 #/modem              emmc      /dev/block/bootdevice/by-name/apnhlos            flags=display="Modem";backup=1
