@@ -27,7 +27,7 @@
 
 
 # Data
-/metadata           ext4      /dev/block/by-name/metadata                      flags=display="Metadata";backup=1
+/metadata           f2fs      /dev/block/by-name/metadata                      flags=display="Metadata";backup=1
 /data               f2fs      /dev/block/bootdevice/by-name/userdata           flags=display="Data";backup=1
 #/cache              ext4      /dev/block/bootdevice/by-name/cache              flags=display="Cache";backup=1
 
