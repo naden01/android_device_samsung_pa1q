@@ -25,7 +25,7 @@
 /dtbo               emmc      /dev/block/bootdevice/by-name/dtbo               flags=display="dtbo";flashimg;backup=1
 /prism              ext4      /dev/block/bootdevice/by-name/prism              flags=display="prism";backup=1
 /optics             ext4      /dev/block/bootdevice/by-name/optics             flags=display="optics";backup=1
-
+/cache		        ext4	  /dev/block/bootdevice/by-name/cache		       flags=backup=1;display="Cache"
 
 # Data
 /metadata           f2fs      /dev/block/by-name/metadata                      flags=display="Metadata";backup=1
