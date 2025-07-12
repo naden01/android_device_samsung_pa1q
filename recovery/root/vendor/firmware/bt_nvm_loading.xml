@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8" ?>
+
+<Tag count="9">
+	<!-- Chipset list supported in XML overriding -->
+		<!-- WCN3988 -->
+		<!-- CHEROKEE_VER_2_1 for MTP verification-->
+		<!-- WCN3991 -->
+		<!-- QCA6390 -->
+		<!-- WCN6850 -->
+		<!-- WCN6856 -->
+		<!-- WCN6856_2.1 -->
+		<!-- WCN7851 -->
+	<Chipset value="WCN7851"/>	
+	<!-- describe project / target name -->
+	<Target value="Next_E3_HMT"/>		
+	<!-- External Power Configuration -->
+	<Tag36>
+		<ChangeType type="default"/>
+		<Length len="60"/>
+		<OffsetCount count="8"/>
+		<Offset>
+			<Offset0 value="0"/>
+			<Offset1 value="1"/>
+			<Offset2 value="4"/>
+			<Offset3 value="5"/>
+			<Offset4 value="6"/>
+			<Offset5 value="12"/>
+			<Offset6 value="13"/>
+			<Offset7 value="14"/>
+		</Offset>
+		<ChangesCount count="8"/>
+		<Changes>
+			<!-- power enable mask -->
+			<Changes0 value="0xFF"/>
+			<Changes1 value="0x0F"/>
+			<!-- GFSK Max Power / BR -->
+			<Changes2 value="0x0B"/>
+			<!-- DQPSK Max Power / EDR 2M -->
+			<Changes3 value="0x0B"/>
+			<!-- 8DPSK Max Power / EDR 3M -->
+			<Changes4 value="0x0B"/>
+			<!-- Platform Power Fine Adjust BR -->
+			<Changes5 value="0x00"/>
+			<!-- Platform Power Fine Adjust EDR -->
+			<Changes6 value="0x02"/>
+			<!-- Platform Power Fine Adjust BLE -->
+			<Changes7 value="0x04"/>
+		</Changes>
+	</Tag36>
+	<!-- LE Tx Power Configuration -->
+	<Tag83>
+		<ChangeType type="default"/>
+		<Length len="15"/>
+		<OffsetCount count="9"/>
+		<Offset>
+			<Offset0 value="0"/>
+			<Offset1 value="1"/>
+			<Offset2 value="2"/>
+			<Offset3 value="8"/>			
+			<Offset4 value="9"/>
+			<Offset5 value="10"/>
+			<Offset6 value="11"/>
+			<Offset7 value="12"/>
+			<Offset8 value="13"/>
+		</Offset>
+		<ChangesCount count="9"/>
+		<Changes>
+			<!-- Hexadecimal value -->
+			<!-- Advertising Power Level -->			
+			<Changes0 value="0x09"/>
+			<!-- Scan Request Power Level -->
+			<Changes1 value="0x09"/>
+			<!-- Connection Power Level -->
+			<Changes2 value="0x0B"/>
+			<!-- MultiAdv max Tx Power Level -->
+			<Changes3 value="0x0B"/>
+			<!-- max PL individual phy enable -->
+			<Changes4 value="0x01"/>			
+			<!-- 1M PHY max PL -->
+			<Changes5 value="0x0B"/>
+			<!-- 2M PHY max PL -->
+			<Changes6 value="0x0B"/>
+			<!-- 125k coded phy max PL -->
+			<Changes7 value="0x09"/>			
+			<!-- 500k coded phy max PL -->
+			<Changes8 value="0x09"/>
+		</Changes>
+	</Tag83>
+        <!-- Cal Temp Ctrl , added for BTQ issue on DM3 EUR -->
+	<Tag86>
+		<ChangeType type="default"/>
+		<!-- Length len="88"/ -->
+		<Length len="0"/>
+		<OffsetCount count="3"/>
+		<Offset>
+			<Offset0 value="2"/>
+			<Offset1 value="4"/>
+			<Offset2 value="5"/>
+		</Offset>
+		<ChangesCount count="3"/>
+		<Changes>
+			<Changes0 value="0x00"/>
+			<Changes1 value="0x80"/>
+			<Changes2 value="0x0F"/>
+		</Changes>
+	</Tag86>
+	<!-- Channel Calibration -->
+	<!-- byte0~39: bank0/chain0, byte40~79: bank1/chain0, byte80~119: bank0/chain1, byte120~159: bank1/chain1-->
+	<Tag87>
+		<!-- ChangeType type="entire" means that entire data of the NVM tag will be overwritten -->
+		<ChangeType type="entire"/>
+		<Length len="160"/>
+		<OffsetCount count="160"/>
+		<ChangesCount count="160"/>
+		<Changes>
+			0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,
+			0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x04,0x04,0x04,0x04,0x04,0x06,0x06,0x06,0x06,0x06,
+			0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,
+			0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x08,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,
+			0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,
+			0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x04,0x00,0x00,0x00,0x00,0x00,0x02,0x02,0x02,0x02,0x02,
+			0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,
+			0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+		</Changes>
+	</Tag87>
+	<!-- Bluetooth Local Features Control -->
+	<Tag95>
+    <ChangeType type="default"/>
+    <Length len="204"/>
+    <OffsetCount count="1"/>
+    <Offset>
+      <Offset0 value="185"/>
+    </Offset> 
+    <ChangesCount count="1"/>
+    <Changes>
+      <!-- LE RSSI gain factor default 0 => 0x3C * 0.25 = 15dBm -->
+      <!-- LE RSSI gain factor default 0 => 0x14 * 0.25 = 5dBm -->
+      <!-- LE RSSI gain factor default 0 => 0x08 * 0.25 = 2dBm -->
+      <!-- LE RSSI gain factor default 0 => 0x00 * 0.25 = 0dBm -->
+      <Changes0 value="0x14"/>
+    </Changes>
+  </Tag95>
+	<!-- Low Power Adaptive Control -->
+	<Tag205>
+		<ChangeType type="default"/>
+		<Length len="56"/>
+		<OffsetCount count="4"/>
+		<Offset>
+			<!-- Min Tx PL for Audio Link Feature Enable -->
+			<Offset0 value="32"/>
+			<!-- Min Tx PL for A2DP -->
+			<Offset1 value="33"/>
+			<!-- Min Tx PL for xSCO -->
+			<Offset2 value="34"/>
+			<!-- Min Tx PL for LE Audio -->
+			<Offset3 value="35"/>
+		</Offset>
+		<ChangesCount count="4"/>
+		<Changes>
+			<!-- Feature Enable -->
+			<Changes0 value="0x01"/>
+			<!-- Min Tx PL -->
+			<Changes1 value="0x07"/>
+			<Changes2 value="0x07"/>
+			<Changes3 value="0x07"/>
+		</Changes>
+	</Tag205>
+	<!-- SAR backoff index -->
+	<Tag206>
+		<ChangeType type="default"/>
+		<Length len="88"/>
+		<OffsetCount count="38"/>
+		<Offset>
+	<!-- SAR backoff disable -->
+			<Offset0 value="1"/>
+	<!-- SAR backoff Head enabled -->
+			<Offset1 value="2"/>
+	<!-- SAR backoff NR_only enabled -->
+			<Offset2 value="3"/>
+	<!-- SAR backoff wifi only enabled -->
+			<Offset3 value="5"/>
+	<!-- SAR backoff Grip mode -->
+			<Offset4 value="7"/>
+	<!-- SAR backoff NR+Grip mode -->
+			<Offset5 value="9"/>
+	<!-- SAR backoff wifi 5G, 6G +Grip mode -->
+			<Offset6 value="11"/>
+	<!-- SAR backoff Satellite mode -->
+			<Offset7 value="13"/>
+	<!-- C-TAS DSI Table Category 1 -->
+	<!-- DSI 0 : Disable FCC / Disable RED -->
+			<Offset8 value="24"/>
+			<Offset9 value="25"/>
+	<!-- DSI 1 : Head FCC / Head RED -->
+			<Offset10 value="26"/>
+			<Offset11 value="27"/>
+	<!-- DSI 2 : CP_only FCC / CP_only RED -->
+			<Offset12 value="28"/>
+			<Offset13 value="29"/>
+	<!-- DSI 3 : CP+Head FCC / CP+Head RED -->
+			<Offset14 value="30"/>
+			<Offset15 value="31"/>
+	<!-- DSI 4 : WIFI_5G_6G FCC / WIFI_5G_6G RED -->
+			<Offset16 value="32"/>
+			<Offset17 value="33"/>
+	<!-- DSI 5 : WIFI_5G_6G+Head FCC / WIFI_5G_6G+Head RED -->
+			<Offset18 value="34"/>
+			<Offset19 value="35"/>
+	<!-- DSI 6 : Grip FCC / Grip RED -->
+			<Offset20 value="36"/>
+			<Offset21 value="37"/>
+	<!-- DSI 7 : Head+Grip FCC / Head+Grip RED -->
+			<Offset22 value="38"/>
+			<Offset23 value="39"/>
+	<!-- DSI 8 : CP_only+Grip FCC / CP_only+Grip RED -->
+			<Offset24 value="40"/>
+			<Offset25 value="41"/>
+	<!-- DSI 9 : CP+Head+Grip FCC / CP+Head+Grip RED -->
+			<Offset26 value="42"/>
+			<Offset27 value="43"/>
+	<!-- DSI 10 : WIFI_5G_6G+Grip FCC / WIFI_5G_6G+Grip RED -->
+			<Offset28 value="44"/>
+			<Offset29 value="45"/>
+	<!-- DSI 11 : WIFI_5G_6G+Head+Grip FCC / WIFI_5G_6G+Head+Grip RED -->
+			<Offset30 value="46"/>
+			<Offset31 value="47"/>
+	<!-- DSI 12 : Satellite FCC / Satellite RED -->
+			<Offset32 value="48"/>
+			<Offset33 value="49"/>
+	<!-- C-TAS DSI Table Category 2 -->
+	<!-- DSI 17 : BT Mid mode+WIFI FCC / BT Mid mode+WIFI RED -->
+			<Offset34 value="58"/>
+			<Offset35 value="59"/>
+	<!-- DSI 18 : BT High mode+WIFI FCC / BT High mode+WIFI RED -->
+			<Offset36 value="60"/>
+			<Offset37 value="61"/>
+		</Offset>
+		<ChangesCount count="38"/>
+		<Changes>
+	<!-- SAR backoff index -->
+	<!-- Hexadecimal value/ 0.25dBm unit  0x50 : 20dBm, 0x28: 10dBm  -->
+	<!-- SAR backoff disable -->
+			<Changes0 value="0x80"/>
+	<!-- SAR backoff Head enabled -->
+			<Changes1 value="0x38"/>
+	<!-- SAR backoff NR_only enabled -->
+			<Changes2 value="0x50"/>
+	<!-- SAR backoff wifi only enabled -->
+			<Changes3 value="0x50"/>
+	<!-- SAR backoff Grip mode -->			
+			<Changes4 value="0x50"/>
+	<!-- SAR backoff NR+Grip mode -->
+			<Changes5 value="0x50"/>
+	<!-- SAR backoff wifi 5G, 6G +Grip mode -->
+			<Changes6 value="0x50"/>
+	<!-- SAR backoff Satellite mode -->
+			<Changes7 value="0x50"/>
+	<!-- Hexadecimal value : 1dBm unit, 0x14 : 20dBm  -->
+	<!-- C-TAS DSI Table Category 1 -->
+	<!-- DSI 0 : Disable FCC / Disable RED -->
+			<Changes8 value="0x14"/>
+			<Changes9 value="0x14"/>
+	<!-- DSI 1 : Head FCC / Head RED -->
+			<Changes10 value="0x0F"/>
+			<Changes11 value="0x0F"/>
+	<!-- DSI 2 : CP_only FCC / CP_only RED -->
+			<Changes12 value="0x14"/>
+			<Changes13 value="0x14"/>
+	<!-- DSI 3 : CP+Head FCC / CP+Head RED -->
+			<Changes14 value="0x14"/>
+			<Changes15 value="0x14"/>
+	<!-- DSI 4 : WIFI_5G_6G FCC / WIFI_5G_6G RED -->
+			<Changes16 value="0x0F"/>
+			<Changes17 value="0x0F"/>
+	<!-- DSI 5 : WIFI_5G_6G+Head FCC / WIFI_5G_6G+Head RED -->
+			<Changes18 value="0x0F"/>
+			<Changes19 value="0x0F"/>
+	<!-- DSI 6 : Grip FCC / Grip RED -->
+			<Changes20 value="0x14"/>
+			<Changes21 value="0x14"/>
+	<!-- DSI 7 : Head+Grip FCC / Head+Grip RED -->
+			<Changes22 value="0x14"/>
+			<Changes23 value="0x14"/>
+	<!-- DSI 8 : CP_only+Grip FCC / CP_only+Grip RED -->
+			<Changes24 value="0x14"/>
+			<Changes25 value="0x14"/>
+	<!-- DSI 9 : CP+Head+Grip FCC / CP+Head+Grip RED -->
+			<Changes26 value="0x14"/>
+			<Changes27 value="0x14"/>
+	<!-- DSI 10 : WIFI_5G_6G+Grip FCC / WIFI_5G_6G+Grip RED -->
+			<Changes28 value="0x14"/>
+			<Changes29 value="0x14"/>
+	<!-- DSI 11 : WIFI_5G_6G+Head+Grip FCC / WIFI_5G_6G+Head+Grip RED -->
+			<Changes30 value="0x14"/>
+			<Changes31 value="0x14"/>
+	<!-- DSI 12 : Satellite FCC / Satellite RED -->
+			<Changes32 value="0x14"/>
+			<Changes33 value="0x14"/>			
+	<!-- C-TAS DSI Table Category 2 -->
+	<!-- DSI 17 : BT Mid mode+WIFI FCC / BT Mid mode+WIFI RED -->
+			<Changes34 value="0x14"/>
+			<Changes35 value="0x14"/>
+	<!-- DSI 18 : BT High mode+WIFI FCC / BT High mode+WIFI RED -->
+			<Changes36 value="0x14"/>
+			<Changes37 value="0x14"/>
+		</Changes>
+	</Tag206>
+	<!-- Rx Chan RSSI Cal -->
+	<!-- byte0~39: chain0, byte40~79: chain1, 0.25db steps -->
+	<Tag217>
+		<!-- ChangeType type="entire" means that entire data of the NVM tag will be overwritten -->
+		<ChangeType type="entire"/>
+		<Length len="80"/>
+		<OffsetCount count="80"/>
+		<ChangesCount count="80"/>
+		<Changes>
+			0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+			0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+			0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+			0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+		</Changes>
+	</Tag217>
+	<!-- TPC Gain LUT -->	
+	<Tag220>
+		<ChangeType type="default"/>
+		<Length len="228"/>
+		<OffsetCount count="10"/>
+		<Offset>
+			<Offset0 value="216"/>
+			<Offset1 value="217"/>
+			<Offset2 value="218"/>
+			<Offset3 value="219"/>
+			<Offset4 value="220"/>
+			<Offset5 value="221"/>
+			<Offset6 value="222"/>
+			<Offset7 value="223"/>
+			<Offset8 value="224"/>
+			<Offset9 value="225"/>			
+		</Offset>
+		<ChangesCount count="10"/>
+		<Changes>
+			<!-- Hexadecimal value/ step sizse 0.125 dB -->
+			<!-- To reduce output power, use positive offset -->
+			<!-- To increase output power, use negative offset -->
+			<!-- PLUT_OFFSET_ADJUST_CH_0 / PL7 ~ PL11 -->			
+			<Changes0 value="0xFB"/>
+			<Changes1 value="0xFB"/>
+			<Changes2 value="0xFB"/>
+			<Changes3 value="0xFB"/>			
+			<Changes4 value="0xF4"/>
+			<!-- PLUT_OFFSET_ADJUST_CH_1 / PL7 ~ PL11 -->				
+			<Changes5 value="0xFC"/>
+			<Changes6 value="0xFC"/>
+			<Changes7 value="0xFC"/>
+			<Changes8 value="0xFC"/>
+			<Changes9 value="0xF6"/>			
+		</Changes>
+	</Tag220>	
+</Tag>
