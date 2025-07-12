@@ -1,0 +1,19 @@
+service vendor.samsung.hardware.thermal-default /vendor/bin/hw/vendor.samsung.hardware.thermal-service
+    class hal
+    user system
+    group system
+
+on property:init.svc.zygote=restarting
+    restart vendor.samsung.hardware.thermal-default
+
+on property:sys.boot_completed=*
+    setprop vendor.thermal.bt_completed ${sys.boot_completed}
+
+on property:debug.btcon.disable=*
+    setprop persist.vendor.btcon.disable ${debug.btcon.disable}
+
+on property:vendor.thermal.amb.test=*
+    setprop persist.vendor.thermal.amb.test ${vendor.thermal.amb.test}
+
+on property:vendor.thermal.amb.last=*
+    setprop persist.vendor.thermal.amb.last ${vendor.thermal.amb.last}
