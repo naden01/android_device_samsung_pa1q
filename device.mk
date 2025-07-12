@@ -1,5 +1,6 @@
 # A/B
 $(call inherit-product, $(SRC_TARGET_DIR)/product/virtual_ab_ota.mk)
+$(call inherit-product, $(SRC_TARGET_DIR)/product/virtual_ab_ota/launch_with_vendor_ramdisk.mk)
 AB_OTA_UPDATER := true
 
 AB_OTA_PARTITIONS += \
@@ -21,15 +22,21 @@ PRODUCT_PROPERTY_OVERRIDES += \
    ro.twrp.fastbootd=1 \
    ro.boot.fastbootd=true
 
+AB_OTA_POSTINSTALL_CONFIG += \
+    RUN_POSTINSTALL_system=true \
+    POSTINSTALL_PATH_system=system/bin/otapreopt_script \
+    FILESYSTEM_TYPE_system=erofs \
+    POSTINSTALL_OPTIONAL_system=true
+
+# Boot control
+PRODUCT_PACKAGES += \
+    android.hardware.boot@1.2-impl-qti.recovery \
+    bootctrl.sun.recovery
+
 # fastbootd
 PRODUCT_PACKAGES += \
     android.hardware.fastboot@1.1-impl-mock \
     fastbootd
-
-# Health Hal
-PRODUCT_PACKAGES += \
-    android.hardware.health@2.0-impl \
-    android.hardware.health@2.0-service
 
 # Partitions
 PRODUCT_USE_DYNAMIC_PARTITIONS := true

@@ -26,11 +26,15 @@
 #
 
 on init
+    # to cut charging battery path
+    write /sys/class/power_supply/battery/siop_level 0
+	
+on init
     write /sys/class/backlight/panel0-backlight/brightness 200
     setprop sys.usb.configfs 1
 
 on property:ro.boot.usbcontroller=*
-#    setprop sys.usb.controller ${ro.boot.usbcontroller}
+    setprop sys.usb.controller ${ro.boot.usbcontroller}
     wait /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode
     write /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode peripheral
     wait /sys/class/udc/${ro.boot.usbcontroller} 1
@@ -38,3 +42,15 @@ on property:ro.boot.usbcontroller=*
 on fs
     wait /dev/block/platform/soc/${ro.boot.bootdevice}
     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
+	
+	# Mount firmware
+    mkdir /vendor/firmware_mnt
+    mount vfat /dev/block/bootdevice/by-name/apnhlos /vendor/firmware_mnt
+
+    export ANDROID_ROOT /system_root
+
+on post-fs
+    start boot-hal-1-2
+
+on boot
+    start health-hal-2-1	

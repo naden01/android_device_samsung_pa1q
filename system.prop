@@ -1,6 +1,12 @@
-ro.display.series=Samsung S25
+ro.display.series=Samsung S25 5G
 ro.product.board=sun
 ro.board.platform=sun
 ro.boot.dynamic_partitions=true
 sys.usb.controller=a600000.dwc3
 ro.boot.bootdevice=1d84000.ufshc
+
+# Battery Property
+ro.charger.enable_suspend=1
+
+# ADB
+ro.adb.secure=0
