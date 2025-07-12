@@ -53,5 +53,5 @@ odm	 	                           /odm              	erofs	ro	wait,slotselect,log
 /dev/block/by-name/metadata	            /metadata	    f2fs	noatime,nosuid,nodev,discard,sync,fsync_mode=strict,data_flush	wait,check,formattable,wrappedkey,first_stage_mount
 /dev/block/bootdevice/by-name/userdata	/data	        f2fs	noatime,nosuid,nodev,discard,usrquota,grpquota,fsync_mode=nobarrier,reserve_root=32768,resgid=5678	latemount,wait,check,formattable,quota,reservedsize=128M,sysfs_path=/sys/devices/platform/soc/1d84000.ufshc,checkpoint=fs,fscompress,ddp
 
-# misc
-/dev/block/bootdevice/by-name/misc 	/misc	        emmc	defaults	defaults,first_stage_mount
+#misc
+/dev/block/by-name/misc 	/misc	        emmc	defaults	defaults,first_stage_mount
