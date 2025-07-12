@@ -1,0 +1,10 @@
+on init
+    start health-hal-2-1-samsung
+
+service health-hal-2-1-samsung /vendor/bin/hw/android.hardware.health@2.1-service-samsung
+    class hal charger
+    user root
+    group root
+    capabilities WAKE_ALARM
+    file /dev/kmsg w
+    seclabel u:r:recovery:s0
