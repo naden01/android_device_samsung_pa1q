@@ -1,4 +1,4 @@
-# Copyright (c)  2019-2023 The Linux Foundation. All rights reserved.
+# Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted (subject to the limitations in the
@@ -34,24 +34,17 @@
 # The filesystem that contains the filesystem checker binary (typically /system) cannot
 # specify MF_CHECK, and must come before any filesystems that do specify MF_CHECK
 
-#<src>                                                 <mnt_point>            <type>  <mnt_flags and options>                            <fs_mgr_flags>
+#<src>						<mnt_point>	<type>	<mnt_flags and options>	<fs_mgr_flags>
+system						/system		erofs	ro			wait,slotselect,logical,first_stage_mount
+system						/system		f2fs	ro			wait,slotselect,logical,first_stage_mount
+system						/system		ext4	ro			wait,slotselect,logical,first_stage_mount
+vendor						/vendor		erofs	ro			wait,slotselect,logical,first_stage_mount
+system_ext					/system_ext	erofs	ro			wait,slotselect,logical,first_stage_mount
+vendor_dlkm					/vendor_dlkm	erofs	ro			wait,slotselect,logical,first_stage_mount
+product						/product	erofs	ro			wait,slotselect,logical,first_stage_mount
+odm						/odm		erofs	ro			wait,slotselect,logical,first_stage_mount
+system_dlkm					/system_dlkm	erofs	ro			wait,slotselect,logical,first_stage_mount
 
-# Logical
-system	                           /system	            erofs	ro	wait,slotselect,logical,first_stage_mount
-system	                           /system           	f2fs	ro	wait,slotselect,logical,first_stage_mount
-system		                       /system	            ext4	ro	wait,slotselect,logical,first_stage_mount
-system_ext		                   /system_ext         	erofs	ro	wait,slotselect,logical,first_stage_mount
-product		                       /product	            erofs	ro	wait,slotselect,logical,first_stage_mount
-vendor		                       /vendor	            erofs	ro	wait,slotselect,logical,first_stage_mount
-vendor_dlkm		                   /vendor_dlkm     	erofs	ro	wait,slotselect,logical,first_stage_mount
-system_dlkm		                   /system_dlkm      	erofs	ro	wait,slotselect,logical,first_stage_mount
-system_dlkm	                       /system_dlkm	        f2fs	ro	wait,slotselect,logical,first_stage_mount
-system_dlkm	                       /system_dlkm      	ext4	ro	wait,slotselect,logical,first_stage_mount
-odm	 	                           /odm              	erofs	ro	wait,slotselect,logical,first_stage_mount
-
-# Data
-/dev/block/by-name/metadata	            /metadata	    f2fs	noatime,nosuid,nodev,discard,sync,fsync_mode=strict,data_flush	wait,check,formattable,wrappedkey,first_stage_mount
-/dev/block/bootdevice/by-name/userdata	/data	        f2fs	noatime,nosuid,nodev,discard,usrquota,grpquota,fsync_mode=nobarrier,reserve_root=32768,resgid=5678	latemount,wait,check,formattable,quota,reservedsize=128M,sysfs_path=/sys/devices/platform/soc/1d84000.ufshc,checkpoint=fs,fscompress,ddp
-
-#misc
-/dev/block/by-name/misc 	/misc	        emmc	defaults	defaults,first_stage_mount
+/dev/block/by-name/metadata			/metadata	f2fs	noatime,nosuid,nodev,discard,sync,fsync_mode=strict,data_flush	wait,check,formattable,wrappedkey,first_stage_mount
+/dev/block/bootdevice/by-name/userdata	/data	f2fs	noatime,nosuid,nodev,discard,usrquota,grpquota,fsync_mode=nobarrier,reserve_root=32768,resgid=5678,inlinecrypt	latemount,wait,check,,quota,reservedsize=128M,sysfs_path=/sys/devices/platform/soc/1d84000.ufshc,checkpoint=fs,fscompress,ddp,fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0,metadata_encryption=aes-256-xts:wrappedkey_v0,keydirectory=/metadata/vold/metadata_encryption
+/dev/block/bootdevice/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
