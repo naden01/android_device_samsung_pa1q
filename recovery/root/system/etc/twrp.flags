@@ -12,9 +12,9 @@
 #/system_dlkm	    ext4	  system_dlkm                                      flags=display="system_dlkm EXT4";logical;backup=1
 
 # Physical Partitions
-/boot               emmc      /dev/block/by-name/boot               flags=display="Boot";flashimg=1;backup=1
-/init_boot          emmc      /dev/block/by-name/init_boot          flags=display="init_Boot";flashimg=1;backup=1
-/vendor_boot        emmc      /dev/block/by-name/vendor_boot        flags=display="init_Boot";flashimg=1;backup=1
+/boot               emmc      /dev/block/platform/soc/1d84000.ufshc/boot               flags=display="Boot";flashimg=1;backup=1
+/init_boot          emmc      /dev/block/platform/soc/1d84000.ufshc/init_boot          flags=display="init_Boot";flashimg=1;backup=1
+/vendor_boot        emmc      /dev/block/platform/soc/1d84000.ufshc/vendor_boot        flags=display="init_Boot";flashimg=1;backup=1
 /persist		    ext4	  /dev/block/by-name/persist			           flags=display=persist;backup;flashimg
 /efs                ext4      /dev/block/by-name/sec_efs            flags=display="efs";backup=1
 /sec_efs            ext4      /dev/block/by-name/sec_efs            flags=display="sec_efs";backup=1
@@ -23,13 +23,13 @@
 /dsp                emmc      /dev/block/by-name/dsp                flags=display=dsp;backup=1
 /misc               emmc      /dev/block/by-name/misc               flags=display="misc";backup=1
 /dtbo               emmc      /dev/block/by-name/dtbo               flags=display="dtbo";flashimg;backup=1
-/prism              ext4      /dev/block/by-name/prism              flags=display="prism";backup=1
-/optics             ext4      /dev/block/by-name/optics             flags=display="optics";backup=1
+/prism              ext4      /dev/block/by-name/bootdevice/prism              flags=display="prism";backup=1
+/optics             ext4      /dev/block/by-name/bootdevice/optics             flags=display="optics";backup=1
 /cache		        ext4	  /dev/block//by-name/cache		       flags=backup=1;display="Cache"
 
 # Data
 /metadata           f2fs      /dev/block/by-name/metadata                      flags=display="Metadata";backup=1
-/data               f2fs      /dev/block/bootdevice/userdata           flags=display="Data";backup=1
+/data               f2fs      /dev/block/by-name/userdata           flags=display="Data";backup=1
 
 # OTG
 /usb-otg        auto          /dev/block/sde      /dev/block/sde1                    flags=display="USB-OTG";storage;wipeingui;removable
