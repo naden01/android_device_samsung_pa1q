@@ -1,15 +1,15 @@
 # Logical Partitions
-/system             erofs     system                                           flags=display="System EROFS";logical;backup=1
-/system             f2fs      system                                           flags=display="System F2FS";logical;backup=1
-/system             ext4      system                                           flags=display="System EXT";logical;backup=1
-/vendor             erofs     vendor                                           flags=display="Vendor";logical;backup=1
-/product            erofs     product                                          flags=display="Product";logical;backup=1
-/system_ext         erofs     system_ext                                       flags=display="system_ext";logical;backup=1
-/vendor_dlkm        erofs     vendor_dlkm                                      flags=display="vendor_dlkm";logical;backup=1
-/odm	            erofs	  odm                                              flags=display="odm";logical;backup=1
-/system_dlkm	    erofs     system_dlkm                                      flags=display="system_dlkm EROFS";logical;backup=1
-/system_dlkm	    f2fs      system_dlkm                                      flags=display="system_dlkm f2fs";logical;backup=1
-/system_dlkm	    ext4	  system_dlkm                                      flags=display="system_dlkm EXT4";logical;backup=1
+#/system             erofs     system                                           flags=display="System EROFS";logical;backup=1
+#/system             f2fs      system                                           flags=display="System F2FS";logical;backup=1
+#/system             ext4      system                                           flags=display="System EXT";logical;backup=1
+#/vendor             erofs     vendor                                           flags=display="Vendor";logical;backup=1
+#/product            erofs     product                                          flags=display="Product";logical;backup=1
+#/system_ext         erofs     system_ext                                       flags=display="system_ext";logical;backup=1
+#/vendor_dlkm        erofs     vendor_dlkm                                      flags=display="vendor_dlkm";logical;backup=1
+#/odm	            erofs	  odm                                              flags=display="odm";logical;backup=1
+#/system_dlkm	    erofs     system_dlkm                                      flags=display="system_dlkm EROFS";logical;backup=1
+#/system_dlkm	    f2fs      system_dlkm                                      flags=display="system_dlkm f2fs";logical;backup=1
+#/system_dlkm	    ext4	  system_dlkm                                      flags=display="system_dlkm EXT4";logical;backup=1
 
 # Physical Partitions
 /boot               emmc      /dev/block/bootdevice/by-name/boot               flags=display="Boot";flashimg=1;backup=1
@@ -21,7 +21,7 @@
 /modem              emmc      /dev/block/bootdevice/by-name/apnhlos            flags=display="Modem";backup=1
 /mdm                emmc      /dev/block/bootdevice/by-name/modem              flags=display="mdm";backup=1
 /dsp                emmc      /dev/block/bootdevice/by-name/dsp                flags=display=dsp;backup=1
-/misc               emmc      /dev/block/bootdevice/by-name/misc               flags=display="misc";backup=1
+/misc               emmc      /dev/block/by-name/misc               flags=display="misc";backup=1
 /dtbo               emmc      /dev/block/bootdevice/by-name/dtbo               flags=display="dtbo";flashimg;backup=1
 /prism              ext4      /dev/block/bootdevice/by-name/prism              flags=display="prism";backup=1
 /optics             ext4      /dev/block/bootdevice/by-name/optics             flags=display="optics";backup=1
@@ -33,3 +33,12 @@
 
 # OTG
 /usb-otg        auto          /dev/block/sde      /dev/block/sde1                    flags=display="USB-OTG";storage;wipeingui;removable
+
+/system_image_a	       emmc		/dev/block/mapper/system_a									flags=display="system_a";backup;flashimg
+/system_image_b	       emmc		/dev/block/mapper/system_b									flags=display="system_b";backup;flashimg
+/vendor_image	       emmc		/dev/block/mapper/vendor									flags=display="vendor image";slotselect;backup;flashimg
+/system_ext_image      emmc		/dev/block/mapper/system_ext								        flags=display="System_EXT image";slotselect;backup;flashimg
+/product_image         emmc             /dev/block/mapper/product									flags=display="Product image";slotselect;backup;flashimg
+/vendor_dlkm_image	       emmc		/dev/block/mapper/vendor									flags=display="vendor_dlkm image";slotselect;backup;flashimg
+/system_dlkm_image      emmc		/dev/block/mapper/system_ext								        flags=display="system_dlkm image";slotselect;backup;flashimg
+/odm_image         emmc             /dev/block/mapper/odm									flags=display="odm image";slotselect;backup;flashimg
