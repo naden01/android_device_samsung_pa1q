@@ -1,44 +1,39 @@
-# Logical Partitions
-#/system             erofs     system                                           flags=display="System EROFS";logical;backup=1
-#/system             f2fs      system                                           flags=display="System F2FS";logical;backup=1
-#/system             ext4      system                                           flags=display="System EXT";logical;backup=1
-#/vendor             erofs     vendor                                           flags=display="Vendor";logical;backup=1
-#/product            erofs     product                                          flags=display="Product";logical;backup=1
-#/system_ext         erofs     system_ext                                       flags=display="system_ext";logical;backup=1
-#/vendor_dlkm        erofs     vendor_dlkm                                      flags=display="vendor_dlkm";logical;backup=1
-#/odm	            erofs	  odm                                              flags=display="odm";logical;backup=1
-#/system_dlkm	    erofs     system_dlkm                                      flags=display="system_dlkm EROFS";logical;backup=1
-#/system_dlkm	    f2fs      system_dlkm                                      flags=display="system_dlkm f2fs";logical;backup=1
-#/system_dlkm	    ext4	  system_dlkm                                      flags=display="system_dlkm EXT4";logical;backup=1
+# mount point	    fstype		device			device2			flags
+# Symlinked partitions
+/system_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system		flags=backup=0;slotselect;flashimg;display="System Image"
+/vendor_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor		flags=backup=0;slotselect;flashimg;display="Vendor Image"
+/product_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/product		flags=backup=0;slotselect;flashimg;display="Product Image"
+/odm_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/odm		flags=backup=0;slotselect;flashimg;display="Odm Image
+/system_ext_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_ext	flags=backup=0;slotselect;flashimg;display="System_EXT Image"
+/vendor_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor_dlkm	flags=backup=0;slotselect;flashimg;display="Vendor_DLKM Image"
+/system_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_dlkm	flags=backup=0;slotselect;flashimg;display="System_DLKM Image"
 
-# Physical Partitions
-/boot               emmc      /dev/block/platform/soc/1d84000.ufshc/boot               flags=display="Boot";flashimg=1;backup=1
-/init_boot          emmc      /dev/block/platform/soc/1d84000.ufshc/init_boot          flags=display="init_Boot";flashimg=1;backup=1
-/vendor_boot        emmc      /dev/block/platform/soc/1d84000.ufshc/vendor_boot        flags=display="init_Boot";flashimg=1;backup=1
-/persist		    ext4	  /dev/block/by-name/persist			           flags=display=persist;backup;flashimg
-/efs                ext4      /dev/block/by-name/sec_efs            flags=display="efs";backup=1
-/sec_efs            ext4      /dev/block/by-name/sec_efs            flags=display="sec_efs";backup=1
-/modem              emmc      /dev/block/by-name/apnhlos            flags=display="Modem";backup=1
-/mdm                emmc      /dev/block/by-name/modem              flags=display="mdm";backup=1
-/dsp                emmc      /dev/block/by-name/dsp                flags=display=dsp;backup=1
-/misc               emmc      /dev/block/by-name/misc               flags=display="misc";backup=1
-/dtbo               emmc      /dev/block/by-name/dtbo               flags=display="dtbo";flashimg;backup=1
-/prism              ext4      /dev/block/by-name/bootdevice/prism              flags=display="prism";backup=1
-/optics             ext4      /dev/block/by-name/bootdevice/optics             flags=display="optics";backup=1
-/cache		        ext4	  /dev/block//by-name/cache		       flags=backup=1;display="Cache"
+# Physical partitions
+/boot		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/boot		flags=backup=1;slotselect;flashimg;display="Boot"
+/init_boot	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/init_boot		flags=backup=1;slotselect;flashimg;display="Init Boot"
+/cache		ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/cache		flags=backup=1;display="Cache"
+/persist	ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/persist		flags=backup=1;display="Persist"
 
-# Data
-/metadata           f2fs      /dev/block/by-name/metadata                      flags=display="Metadata";backup=1
-/data               f2fs      /dev/block/by-name/userdata           flags=display="Data";backup=1
+/efs_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/efs		flags=backup=1;display="EFS"
+/sec_efs_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/sec_efs		flags=backup=1;subpartitionof=/efs_image
+/fsg		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/fsg		flags=backup=1;subpartitionof=/efs_image
+/fsc		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/fsc		flags=backup=1;subpartitionof=/efs_image
+/modemst1	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/modemst1		flags=backup=1;subpartitionof=/efs_image
+/modemst2	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/modemst2		flags=backup=1;subpartitionof=/efs_image
 
-# OTG
-/usb-otg        auto          /dev/block/sde      /dev/block/sde1                    flags=display="USB-OTG";storage;wipeingui;removable
+/firmware	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos		flags=backup=1;slotselect;display="Firmware"
+/modem		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/modem		flags=backup=1;slotselect;display="Modem firmware"
+/dsp		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/dsp
+/misc		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/misc
+/dtbo		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/dtbo		flags=backup=1;slotselect;flashimg;display="DTBO"
+/optics_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/optics		flags=backup=1;slotselect;flashimg;display="Optics Image"
+/prism_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/prism		flags=backup=1;slotselect;flashimg;display="Prism Image"
+/vbmeta_system	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vbmeta_system
+/vendor_boot	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vendor_boot	flags=backup=1;slotselect;flashimg;display="Vendor Boot"
+/vbmeta_samsung	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vbmeta_samsung
+/vbmeta		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vbmeta		flags=backup=1;slotselect;flashimg;display="Vbmeta"
+/vm-bootsys	ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/vm-bootsys
+/imagefv	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/imagefv
 
-/system_image_a	       emmc		/dev/block/mapper/system_a									flags=display="system_a";backup;flashimg
-/system_image_b	       emmc		/dev/block/mapper/system_b									flags=display="system_b";backup;flashimg
-/vendor_image	       emmc		/dev/block/mapper/vendor									flags=display="vendor image";slotselect;backup;flashimg
-/system_ext_image      emmc		/dev/block/mapper/system_ext								        flags=display="System_EXT image";slotselect;backup;flashimg
-/product_image         emmc             /dev/block/mapper/product									flags=display="Product image";slotselect;backup;flashimg
-/vendor_dlkm_image	       emmc		/dev/block/mapper/vendor									flags=display="vendor_dlkm image";slotselect;backup;flashimg
-/system_dlkm_image      emmc		/dev/block/mapper/system_ext								        flags=display="system_dlkm image";slotselect;backup;flashimg
-/odm_image         emmc             /dev/block/mapper/odm									flags=display="odm image";slotselect;backup;flashimg
+# Removable storage
+/usb-otg	vfat		/dev/block/sde1	/dev/block/sde			flags=display="USB-OTG";storage;wipeingui;removable
