@@ -17,10 +17,6 @@ AB_OTA_PARTITIONS += \
     vbmeta_system \
     odm \
     vendor_boot
-PRODUCT_PROPERTY_OVERRIDES += \
-   ro.twrp.vendor_boot=true \
-   ro.twrp.fastbootd=1 \
-   ro.boot.fastbootd=true
 
 AB_OTA_POSTINSTALL_CONFIG += \
     RUN_POSTINSTALL_system=true \
