@@ -46,8 +46,7 @@ BOARD_RAMDISK_OFFSET := 0x02000000
 BOARD_DTB_SIZE := 4488060
 BOARD_DTB_OFFSET := 0x01f00000
 BOARD_VENDOR_BASE := 0x00000000
-BOARD_VENDOR_CMDLINE := "video=vfb:640x400,bpp=32,memsize=3072000 printk.devkmsg=on firmware_class.path=/vendor/firmware_mnt/image bootconfig loop.max_part=7 androidboot.selinux=permissive"
-
+BOARD_VENDOR_CMDLINE := "video=vfb:640x400,bpp=32,memsize=3072000 printk.devkmsg=on firmware_class.path=/vendor/firmware_mnt/image bootconfig loop.max_part=7 androidboot.selinux=permissive" 
 BOARD_MKBOOTIMG_ARGS += --dtb $(TARGET_PREBUILT_DTB)
 BOARD_MKBOOTIMG_ARGS += --vendor_cmdline $(BOARD_VENDOR_CMDLINE)
 BOARD_MKBOOTIMG_ARGS += --pagesize $(BOARD_PAGE_SIZE) --board "SRPXG11A004"
