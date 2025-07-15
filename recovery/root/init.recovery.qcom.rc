@@ -32,6 +32,9 @@ on init
 on init
     write /sys/class/backlight/panel0-backlight/brightness 200
     setprop sys.usb.configfs 1
+    resetprop ro.twrp.vendor_boot true
+    resetprop ro.twrp.fastbootd 0
+    resetprop ro.boot.fastbootd true
 
 on property:ro.boot.usbcontroller=*
     setprop sys.usb.controller ${ro.boot.usbcontroller}
