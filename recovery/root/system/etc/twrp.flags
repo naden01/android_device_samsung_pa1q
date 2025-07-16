@@ -36,4 +36,4 @@
 /imagefv	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/imagefv
 
 # Removable storage
-/usb-otg	vfat		/dev/block/sde1	/dev/block/sde			flags=display="USB-OTG";storage;wipeingui;removable
+/usb-otg	auto		/dev/block/sde1	/dev/block/sde			flags=display="USB-OTG";storage;wipeingui;removable
