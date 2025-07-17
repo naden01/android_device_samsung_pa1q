@@ -115,7 +115,7 @@ BOARD_USES_METADATA_PARTITION := true
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
 TW_FRAMERATE := 120
-TW_DEFAULT_BRIGHTNESS := 500
+TW_DEFAULT_BRIGHTNESS := 1000
 
 # TWRP Configs
 TW_EXCLUDE_APEX := true
@@ -134,7 +134,8 @@ TW_BACKUP_EXCLUSIONS := /data/fonts
 TW_EXTRA_LANGUAGES := true
 TW_USE_TOOLBOX := true
 TARGET_RECOVERY_FSTAB := $(DEVICE_PATH)/recovery.fstab
-
+#OnageFox
+TW_MAX_BRIGHTNESS := 1500
 # fastbootD
 TW_INCLUDE_FASTBOOTD := true
 
