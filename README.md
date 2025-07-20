@@ -1,4 +1,4 @@
-# TWRP device tree for Samsung Galaxy S25 (pa1q)
+# TWRP device tree for Samsung Galaxy S25 (pa3q)
 
 Official released on July 20 2025 
 
