@@ -1,6 +1,6 @@
 # TWRP device tree for Samsung Galaxy S25 (pa1q)
 
-Official released on July 20 2025 
+Officiall released on July 20 2025 
 
 # Maintainers
 - [Teamwin Recovery Project](https://github.com/teamwin) - developer manifest
