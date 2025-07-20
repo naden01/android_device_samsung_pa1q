@@ -47,16 +47,17 @@ Official released on July 20 2025
 
 
 
-## Clone manifest twrp-12.1 
+## Sync OrangeFox sources and minimal manifest 
 ```bash
-repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+mkdir ~/OrangeFox_sync
+cd ~/OrangeFox_sync
+git clone https://gitlab.com/OrangeFox/sync.git # (or, using ssh, "git clone git@gitlab.com:OrangeFox/sync.git")
+cd ~/OrangeFox_sync/sync/
+./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
 ```
-## Sync manifest twrp-12.1
+## Place device trees and kernel
 ```bash
-repo sync
-```
-## Cloning the device tree
-```bash
+cd ~/fox_12.1
 git clone https://github.com/naden01/android_device_samsung_pa1q.git -b android-12.1 device/samsung/pa1q
 ```
 ## Build
