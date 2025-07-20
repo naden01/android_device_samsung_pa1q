@@ -55,7 +55,7 @@ git clone https://gitlab.com/OrangeFox/sync.git # (or, using ssh, "git clone git
 cd ~/OrangeFox_sync/sync/
 ./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
 ```
-## Place device trees and kernel
+## Cloning the device tree
 ```bash
 cd ~/fox_12.1
 git clone https://github.com/naden01/android_device_samsung_pa1q.git -b android-12.1 device/samsung/pa1q
