@@ -2,7 +2,7 @@
 BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
 ALLOW_MISSING_DEPENDENCIES := true
 
-DEVICE_PATH := device/samsung/pa1q
+DEVICE_PATH := device/samsung/pa2q
 
 # Architecture
 TARGET_ARCH := arm64
@@ -26,7 +26,7 @@ BOARD_USES_QCOM_HARDWARE := true
 BOARD_NO_RADIOIMAGE := true
 
 # Display
-TARGET_SCREEN_DENSITY := 480
+TARGET_SCREEN_DENSITY := 560
 TARGET_USES_VULKAN := true
 
 # Kernel
@@ -129,7 +129,7 @@ TW_USE_NEW_MINADBD := true
 TW_SCREEN_BLANK_ON_BOOT := true
 TW_NO_BIND_SYSTEM := true
 TW_USE_MODEL_HARDWARE_ID_FOR_DEVICE_ID := true
-TW_DEVICE_VERSION := Jamie_Naden_Maxim_Archer_Ahmed_Carlo | pa1q
+TW_DEVICE_VERSION := Jamie_Naden_Maxim_Archer_Ahmed_Carlo | pa2q
 TW_BACKUP_EXCLUSIONS := /data/fonts
 TW_EXTRA_LANGUAGES := true
 TW_USE_TOOLBOX := true
