@@ -11,9 +11,9 @@ Official released on July 20 2025
 - [Ahmed](https://github.com/GitFASTBOOT) - developer
 - [Carlo](https://github.com/cd-Crypton) - developer
 
-# Samsung S25
+# Samsung S25+
 <p align="left" width="100%">
-<img width="33%" src="https://github.com/Maxim-Root/Picture/blob/Samsung/S25.png"> 
+<img width="33%" src="https://github.com"> 
 </p>
 
 
