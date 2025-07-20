@@ -1,5 +1,3 @@
-# Model
-PRODUCT_MODEL := SM-S936B
 
 # for building
 BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true
