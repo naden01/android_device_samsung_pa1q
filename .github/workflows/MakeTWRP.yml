@@ -1,0 +1,116 @@
+# Workflow name
+name: Build TWRP for pa1q
+
+# Workflow triggers
+on:
+  # Allows manual triggering from the GitHub Actions page
+  workflow_dispatch:
+  # Triggers automatically on pushes to the specified branch
+  push:
+    branches:
+      - android-12.1
+
+jobs:
+  build:
+    # Security: Only run the job if triggered by the repository owner
+    if: github.event.repository.owner.id == github.event.sender.id
+    # Runner: Use the latest Ubuntu 24.04 environment
+    runs-on: ubuntu-24.04
+    # Permissions: Grant write permissions to create a GitHub Release
+    permissions:
+      contents: write
+
+    steps:
+    # Step 1: Check out the current repository
+    # This action checks-out your repository under $GITHUB_WORKSPACE, so your workflow can access it.
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Step 2: Maximize build space
+    # Uses a dedicated action to remove pre-installed software and free up disk space.
+    - name: Cleanup Build Environment
+      uses: rokibhasansagar/slimhub_actions@main
+
+    # Step 3: Install build dependencies
+    # Installs all necessary packages required for building Android/TWRP.
+    - name: Prepare Build Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+
+    # Step 4: Set up Java environment
+    # Installs OpenJDK 11, which is required for this Android version.
+    - name: Install OpenJDK 11
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '11'
+
+    # Step 5: Install the 'repo' tool
+    # Downloads and installs Google's 'repo' command-line tool for managing multiple Git repositories.
+    - name: Install repo
+      run: |
+        mkdir -p ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+        echo "$HOME/bin" >> $GITHUB_PATH
+
+    # Step 6: Initialize the source repository
+    # Creates a workspace directory and initializes the TWRP AOSP manifest.
+    - name: Initialize repo
+      id: workspace
+      run: |
+        mkdir workspace
+        cd workspace
+        echo "path=$(pwd)" >> $GITHUB_OUTPUT
+        git config --global user.name "YuzakiKokuban"
+        git config --global user.email "YuzakiKokuban@users.noreply.github.com"
+        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp -b twrp-12.1
+
+    # Step 7: Sync the source code
+    # Downloads the AOSP source code based on the manifest. This is a time-consuming step.
+    - name: Repo Sync
+      run: |
+        repo sync -c --prune -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+      working-directory: ${{ steps.workspace.outputs.path }}
+
+    # Step 8: Place the device tree
+    # Copies the contents of the current repository (the device tree) into the correct path within the AOSP source.
+    - name: Copy device tree
+      run: |
+        mkdir -p device/samsung/pa1q
+        rsync -a --exclude='.git/' --exclude='workspace/' ${{ github.workspace }}/ device/samsung/pa1q/
+      working-directory: ${{ steps.workspace.outputs.path }}
+
+    # Step 9: Increase swap space
+    # Creates an 8GB swap file to prevent out-of-memory errors during compilation.
+    - name: Set Swap Space
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 8
+
+    # Step 10: Compile the recovery
+    # This is the main build step. It sets up the environment, selects the target, and starts the compilation.
+    - name: Building recovery
+      run: |
+        source build/envsetup.sh
+        export ALLOW_MISSING_DEPENDENCIES=true
+        lunch twrp_pa1q-eng
+        make clean
+        mka vendorbootimage -j$(nproc --all)
+      working-directory: ${{ steps.workspace.outputs.path }}
+
+    # Step 11: Create a GitHub Release
+    # If the build is successful, this action creates a new release and uploads the resulting image file.
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ${{ steps.workspace.outputs.path }}/out/target/product/pa1q/vendor_boot.img
+        name: "pa1q-${{ github.run_id }}"
+        tag_name: ${{ github.run_id }}
+        body: "TWRP build for pa1q"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
