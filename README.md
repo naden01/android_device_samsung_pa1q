@@ -1,4 +1,4 @@
-# TWRP device tree for Samsung Galaxy S25  (psq)
+# TWRP device tree for Samsung Galaxy S25 Edge (psq)
 
 Official released on July 20 2025 
 
@@ -11,7 +11,7 @@ Official released on July 20 2025
 - [Ahmed](https://github.com/GitFASTBOOT) - developer
 - [Carlo](https://github.com/cd-Crypton) - developer
 
-# Samsung S25
+# Samsung S25 Edge
 <p align="left" width="100%">
 <img width="33%" src="https://github.com/"> 
 </p>
