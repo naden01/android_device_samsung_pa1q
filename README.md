@@ -96,11 +96,11 @@ repo sync
 ```
 ## Cloning the device tree
 ```bash
-git clone https://github.com/naden01/android_device_samsung_pa1q.git -b android-12.1 device/samsung/pa1q
+git clone https://github.com/naden01/android_device_samsung_pa1q.git -b S25Ultra device/samsung/pa3q
 ```
 ## Build
 ```bash
-export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_pa1q-eng; mka vendorbootimage
+export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_pa3q-eng; mka vendorbootimage
 ```
 
 
