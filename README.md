@@ -28,7 +28,7 @@ Official released unknown
 | GPU                          | Adreno 830                                                                    |
 | Memory                       | 12 GB RAM (LPDDR5X)                                                           |
 | Shipped OS                   | Android 15 (One UI 7.0)                                                       |
-| Storage                      | 256/512 GB (UFS 4.1)                                                  |
+| Storage                      | 256/512 GB (UFS 4.0)                                                  |
 | SIM                          | dual Nano-SIM, eSIM                                                           |
 | MicroSD                      | No                                                                            |
 | Battery                      | 4900mAh Li-ion (non-removable), 45W fast charge                               |
