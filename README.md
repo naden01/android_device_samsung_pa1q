@@ -1,6 +1,6 @@
-# TWRP device tree for Samsung Galaxy S25 (pa1q)
+# TWRP device tree for Samsung Galaxy S25+ (pa2q)
 
-Official released on July 20 2025 
+Official released unknown
 
 # Maintainers
 - [Teamwin Recovery Project](https://github.com/teamwin) - developer manifest
@@ -13,7 +13,7 @@ Official released on July 20 2025
 
 # Samsung S25+
 <p align="left" width="100%">
-<img width="33%" src="https://github.com"> 
+<img width="33%" src="https://github.com/Maxim-Root/Picture/blob/Samsung/S25plus.jpg"> 
 </p>
 
 
@@ -28,15 +28,15 @@ Official released on July 20 2025
 | GPU                          | Adreno 830                                                                    |
 | Memory                       | 12 GB RAM (LPDDR5X)                                                           |
 | Shipped OS                   | Android 15 (One UI 7.0)                                                       |
-| Storage                      | 128/256/512 GB (UFS 3.1/4.1)                                                  |
+| Storage                      | 256/512 GB (UFS 4.1)                                                  |
 | SIM                          | dual Nano-SIM, eSIM                                                           |
 | MicroSD                      | No                                                                            |
-| Battery                      | 4000mAh Li-ion (non-removable), 25W fast charge                               |
-| Dimensions                   | 146.9 x 70.5 x 7.2 mm                                                         |
-| Display                      | 6.2" 2340x1080 pixels, 19.5:9 ratio, Dynamic AMOLED 2X, 120Hz (~418 ppi)     |
-| Rear Camera 1                | 50 MP, f1.8 OIS                                                              |
-| Rear Camera 2                | 12 MP, f/2.2                                                                  |
-| Rear Camera 3                | 10 MP, f/2.4, (macro)                                                         |
+| Battery                      | 4900mAh Li-ion (non-removable), 45W fast charge                               |
+| Dimensions                   | 158.4 x 75.8 x 7.3 mm                                                         |
+| Display                      | 6.7" 3120x1440 pixels, 19.5:9 ratio, Dynamic AMOLED 2X, 120Hz (~516 ppi)     |
+| Rear Camera 1                | 50 MP, f1.8, OIS                                                              |
+| Rear Camera 2                | 12 MP, f/2.2,                                                                  |
+| Rear Camera 3                | 10 MP, f/2.4, (macro)                                                      |
 | Front Camera                 | 12 MP, f/2.2                                                                  |
 | Fingerprint                  | under display, optical                                                        |
 | Sensors                      | accelerometer, barometer, gyroscope, Hall sensor, light sensor, proximity sensor|
@@ -93,11 +93,11 @@ repo sync
 ```
 ## Cloning the device tree
 ```bash
-git clone https://github.com/naden01/android_device_samsung_pa1q.git -b android-12.1 device/samsung/pa1q
+git clone https://github.com/naden01/android_device_samsung_pa1q.git -b S25plus device/samsung/pa2q
 ```
 ## Build
 ```bash
-export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_pa1q-eng; mka vendorbootimage
+export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_pa2q-eng; mka vendorbootimage
 ```
 
 
