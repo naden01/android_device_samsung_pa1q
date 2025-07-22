@@ -13,7 +13,7 @@ Official released unknown
 
 # Samsung S25+
 <p align="left" width="100%">
-<img width="33%" src="https://github.com/Maxim-Root/Picture/blob/Samsung/S25plus.jpg"> 
+<img width="33%" src="https://github.com/Maxim-Root/Maxim-Root/Picture/blob/Samsung/S25plus.jpg"> 
 </p>
 
 
