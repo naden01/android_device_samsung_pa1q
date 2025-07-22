@@ -37,7 +37,7 @@ Official released unknown
 | Rear Camera 1                | 50 MP, f1.8, OIS                                                              |
 | Rear Camera 2                | 12 MP, f/2.2,                                                                  |
 | Rear Camera 3                | 10 MP, f/2.4, (macro)                                                      |
-| Front Camera                 | 12 MP, f/2.2                                                                  |
+| Front Camera                 | 12 MP, f/2.2,                                                                  |
 | Fingerprint                  | under display, optical                                                        |
 | Sensors                      | accelerometer, barometer, gyroscope, Hall sensor, light sensor, proximity sensor|
 | Extras                       | Dual speakers, NFC, HDR10+ support, Always on Display                           |
