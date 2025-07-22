@@ -28,7 +28,7 @@ Official released on July 20 2025
 | GPU                          | Adreno 830                                                                    |
 | Memory                       | 12 GB RAM (LPDDR5X)                                                           |
 | Shipped OS                   | Android 15 (One UI 7.0)                                                       |
-| Storage                      | 128/256/512 GB (UFS 3.1/4.1)                                                  |
+| Storage                      | 128/256/512 GB (UFS 3.1/4.0)                                                  |
 | SIM                          | dual Nano-SIM, eSIM                                                           |
 | MicroSD                      | No                                                                            |
 | Battery                      | 4000mAh Li-ion (non-removable), 25W fast charge                               |
