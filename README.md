@@ -21,6 +21,8 @@ Official released on July 20 2025
 
 # Device Specifications
 
+# Device Specifications
+
 | Basic                        | Spec Sheet                                                                    |
 | ---------------------------: | :-----------------------------------------------------------------------------|
 | Chipset                      | Qualcomm Snapdragon 8 Elite for Galaxy (SM8750)                               |
@@ -28,15 +30,16 @@ Official released on July 20 2025
 | GPU                          | Adreno 830                                                                    |
 | Memory                       | 12 GB RAM (LPDDR5X)                                                           |
 | Shipped OS                   | Android 15 (One UI 7.0)                                                       |
-| Storage                      | 128/256/512 GB (UFS 3.1/4.1)                                                  |
+| Storage                      | 256/512/1024 GB (UFS 4.1)                                                  |
 | SIM                          | dual Nano-SIM, eSIM                                                           |
 | MicroSD                      | No                                                                            |
-| Battery                      | 4000mAh Li-ion (non-removable), 25W fast charge                               |
-| Dimensions                   | 146.9 x 70.5 x 7.2 mm                                                         |
-| Display                      | 6.2" 2340x1080 pixels, 19.5:9 ratio, Dynamic AMOLED 2X, 120Hz (~418 ppi)     |
-| Rear Camera 1                | 50 MP, f1.8 OIS                                                              |
-| Rear Camera 2                | 12 MP, f/2.2                                                                  |
-| Rear Camera 3                | 10 MP, f/2.4, (macro)                                                         |
+| Battery                      | 5000mAh Li-ion (non-removable), 45W fast charge                               |
+| Dimensions                   | 162.8 x 77.6 x 8.2 mm                                                         |
+| Display                      | 6.9" 3120x1440 pixels, 19.5:9 ratio, Dynamic AMOLED 2X, 120Hz (~500 ppi)     |
+| Rear Camera 1                | 200 MP, f1.7 OIS                                                              |
+| Rear Camera 2                | 50 MP, f/1.9                                                                  |
+| Rear Camera 3                | 50 MP, f/2.4,                                                          |
+| Rear Camera 4                | 10 MP, f/3.4, (macro)                                                         |
 | Front Camera                 | 12 MP, f/2.2                                                                  |
 | Fingerprint                  | under display, optical                                                        |
 | Sensors                      | accelerometer, barometer, gyroscope, Hall sensor, light sensor, proximity sensor|
