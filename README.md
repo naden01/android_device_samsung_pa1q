@@ -1,6 +1,6 @@
 # TWRP device tree for Samsung Galaxy S25Ultra (pa3q)
 
-Official released on July 20 2025 
+Official released unknown
 
 # Maintainers
 - [Teamwin Recovery Project](https://github.com/teamwin) - developer manifest
