@@ -19,7 +19,7 @@ Official released on July 20 2025
 
 
 
-# Device Specifications
+
 
 # Device Specifications
 
