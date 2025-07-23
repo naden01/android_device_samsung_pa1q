@@ -19,6 +19,8 @@ alias of:N*T*Ccirrus,cs40l27a input_cs40l26_i2c
 alias of:N*T*Ccirrus,cs40l27aC* input_cs40l26_i2c
 alias of:N*T*Ccirrus,cs40l27b input_cs40l26_i2c
 alias of:N*T*Ccirrus,cs40l27bC* input_cs40l26_i2c
+alias platform:s2mpb02-regulator s2mpb02_regulator
+alias platform:s2mpb02-sub-reg s2mpb02_regulator
 alias of:N*T*Cqcom,gic-intr-routing gic_intr_routing
 alias of:N*T*Cqcom,gic-intr-routingC* gic_intr_routing
 alias of:N*T*Cqcom,sun-tlmm pinctrl_sun
@@ -47,6 +49,8 @@ alias of:N*T*Cqcom,regulator-ocp-notifier qti_ocp_notifier
 alias of:N*T*Cqcom,regulator-ocp-notifierC* qti_ocp_notifier
 alias of:N*T*Chall_ic hall_ic
 alias of:N*T*Chall_icC* hall_ic
+alias of:N*T*Cpn547 nfc_nxp_sec
+alias of:N*T*Cpn547C* nfc_nxp_sec
 alias of:N*T*Cqcom,sc7180-aoss-qmp qcom_aoss
 alias of:N*T*Cqcom,sc7180-aoss-qmpC* qcom_aoss
 alias of:N*T*Cqcom,sc7280-aoss-qmp qcom_aoss
@@ -385,6 +389,9 @@ alias usb:v1A0Ap0107d*dc*dsc*dp*ic*isc*ip*in* ehset
 alias usb:v1A0Ap0108d*dc*dsc*dp*ic*isc*ip*in* ehset
 alias of:N*T*Cqcom,tuna-gpucc gpucc_tuna
 alias of:N*T*Cqcom,tuna-gpuccC* gpucc_tuna
+alias i2c:max77968-charger max77968_charger
+alias of:N*T*Cmaxim,max77968 max77968_charger
+alias of:N*T*Cmaxim,max77968C* max77968_charger
 alias i2c:cps4038-charger cps4038_charger
 alias of:N*T*Ccps,cps4038-charger cps4038_charger
 alias of:N*T*Ccps,cps4038-chargerC* cps4038_charger
@@ -412,6 +419,7 @@ alias amba:d???BB909 coresight_replicator
 alias amba:d???BB9EC coresight_replicator
 alias platform:hdmi-audio-codec snd_soc_hdmi_codec
 alias usbfunc:ccid usb_f_ccid
+alias i2c:wacom,wez02 wez02
 alias of:N*T*Csamsung,sec-direct-charger sec_direct_charger
 alias of:N*T*Csamsung,sec-direct-chargerC* sec_direct_charger
 alias of:N*T*Cqcom,ipclite ipclite
@@ -475,6 +483,11 @@ alias of:N*T*Cqcom,msm8974-tcsr-mutex qcom_hwspinlock
 alias of:N*T*Cqcom,msm8974-tcsr-mutexC* qcom_hwspinlock
 alias of:N*T*Cqcom,msm8994-tcsr-mutex qcom_hwspinlock
 alias of:N*T*Cqcom,msm8994-tcsr-mutexC* qcom_hwspinlock
+alias of:N*T*Cvl53l8 stmvl53l8
+alias of:N*T*Cvl53l8C* stmvl53l8
+alias of:N*T*Crange_sensor stmvl53l8
+alias of:N*T*Crange_sensorC* stmvl53l8
+alias spi:range_sensor stmvl53l8
 alias of:N*T*Cqcom,sun-gcc gcc_sun
 alias of:N*T*Cqcom,sun-gccC* gcc_sun
 alias of:N*T*Csamsung,upload_cause sec_upload_cause
@@ -498,9 +511,6 @@ alias of:N*T*Cqcom,sun-dispccC* dispcc_sun
 alias of:N*T*Cqcom,sun-dispcc_mx dispcc_sun
 alias of:N*T*Cqcom,sun-dispcc_mxC* dispcc_sun
 alias char-major-21-* sg
-alias i2c:pca9481-charger pca9481_charger
-alias of:N*T*Cnxp,pca9481 pca9481_charger
-alias of:N*T*Cnxp,pca9481C* pca9481_charger
 alias of:N*T*Cqcom,iommu-dma qcom_iommu_util
 alias of:N*T*Cqcom,iommu-dmaC* qcom_iommu_util
 alias usbfunc:cser usb_f_cdev
@@ -513,6 +523,9 @@ alias of:N*T*Cqcom,spmi-temp-alarm qcom_spmi_temp_alarm
 alias of:N*T*Cqcom,spmi-temp-alarmC* qcom_spmi_temp_alarm
 alias of:N*T*Cqcom,smem smem
 alias of:N*T*Cqcom,smemC* smem
+alias i2c:stwlc89-charger stwlc89_charger
+alias of:N*T*Cstm,stwlc89-charger stwlc89_charger
+alias of:N*T*Cstm,stwlc89-chargerC* stwlc89_charger
 alias of:N*T*Csamsung,usb_vendor_receiver usb_vendor_receiver
 alias of:N*T*Csamsung,usb_vendor_receiverC* usb_vendor_receiver
 alias of:N*T*Cqcom,mpam-slc slc_mpam
@@ -544,10 +557,18 @@ alias of:N*T*Cqcom,slim-ngd-v1.5.0 slim_qcom_ngd_ctrl
 alias of:N*T*Cqcom,slim-ngd-v1.5.0C* slim_qcom_ngd_ctrl
 alias of:N*T*Cqcom,slim-ngd-v2.1.0 slim_qcom_ngd_ctrl
 alias of:N*T*Cqcom,slim-ngd-v2.1.0C* slim_qcom_ngd_ctrl
+alias i2c:s2mpb02 mfd_s2mpb02
+alias of:N*T*Cs2mpb02,s2mpb02mfd mfd_s2mpb02
+alias of:N*T*Cs2mpb02,s2mpb02mfdC* mfd_s2mpb02
 alias platform:qcom-socinfo socinfo
 alias of:N*T*Csamsung,qcom-smem sec_qc_smem
 alias of:N*T*Csamsung,qcom-smemC* sec_qc_smem
-alias char-major-10-255 fst2ba61c_spi
+alias of:N*T*Csiliconmitus,sm5443 sm5443_charger
+alias of:N*T*Csiliconmitus,sm5443C* sm5443_charger
+alias of:N*T*Csiliconmitus,sm5443-sub sm5443_charger
+alias of:N*T*Csiliconmitus,sm5443-subC* sm5443_charger
+alias i2c:sm5443-charger sm5443_charger
+alias i2c:sm5443-charger-sub sm5443_charger
 alias platform:qcom-spmi-gpio pinctrl_spmi_gpio
 alias of:N*T*Cqcom,pm2250-gpio pinctrl_spmi_gpio
 alias of:N*T*Cqcom,pm2250-gpioC* pinctrl_spmi_gpio
@@ -997,7 +1018,6 @@ alias of:N*T*Cqcom,x1e80100-llcc llcc_qcom
 alias of:N*T*Cqcom,x1e80100-llccC* llcc_qcom
 alias of:N*T*Cqcom,sdxpinn-llcc llcc_qcom
 alias of:N*T*Cqcom,sdxpinn-llccC* llcc_qcom
-alias i2c:sec-nfc nfc_slsi_sec
 alias of:N*T*Cqcom,wcd939x-i2c wcd_usbss_i2c
 alias of:N*T*Cqcom,wcd939x-i2cC* wcd_usbss_i2c
 alias i2c:wcd939x wcd_usbss_i2c
