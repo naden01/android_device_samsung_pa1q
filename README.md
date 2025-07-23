@@ -11,11 +11,11 @@ Official released unknown
 - [Ahmed](https://github.com/GitFASTBOOT) - developer
 - [Carlo](https://github.com/cd-Crypton) - developer
 
-# Samsung S25 Edge 
+
+# Samsung S25 Edge
 <p align="left" width="100%">
 <img width="33%" src="https://github.com/Maxim-Root/Picture/blob/Samsung/S25Edge.jpg"> 
 </p>
-
 
 
 
