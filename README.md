@@ -1,4 +1,4 @@
-# TWRP device tree for Samsung Galaxy S25+ (pa2q)
+# TWRP device tree for Samsung Galaxy S25 Plus (pa2q)
 
 Official released unknown
 
@@ -11,7 +11,7 @@ Official released unknown
 - [Ahmed](https://github.com/GitFASTBOOT) - developer
 - [Carlo](https://github.com/cd-Crypton) - developer
 
-# Samsung S25+
+# Samsung S25 Plus
 <p align="left" width="100%">
 <img width="33%" src="https://github.com/Maxim-Root/Picture/blob/Samsung/S25plus.jpg"> 
 </p>
