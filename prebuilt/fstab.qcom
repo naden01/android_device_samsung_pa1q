@@ -39,8 +39,14 @@ system	/system	erofs	ro	avb=vbmeta_system,wait,slotselect,logical,first_stage_mo
 system	/system	f2fs	ro	avb=vbmeta_system,wait,slotselect,logical,first_stage_mount,avb_keys=/avb/q-gsi.avbpubkey:/avb/r-gsi.avbpubkey:/avb/s-gsi.avbpubkey:/avb/t-gsi.avbpubkey:/avb/u-gsi.avbpubkey:/avb/v-gsi.avbpubkey
 system	/system	ext4	ro	avb=vbmeta_system,wait,slotselect,logical,first_stage_mount,avb_keys=/avb/q-gsi.avbpubkey:/avb/r-gsi.avbpubkey:/avb/s-gsi.avbpubkey:/avb/t-gsi.avbpubkey:/avb/u-gsi.avbpubkey:/avb/v-gsi.avbpubkey
 system_ext	/system_ext	erofs	ro	avb=vbmeta_system,wait,slotselect,logical,first_stage_mount
+system_ext	/system_ext	f2fs	ro	avb=vbmeta_system,wait,slotselect,logical,first_stage_mount
+system_ext	/system_ext	ext4	ro	avb=vbmeta_system,wait,slotselect,logical,first_stage_mount
 product	/product	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
+product	/product	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
+product	/product	ext4	ro	avb,wait,slotselect,logical,first_stage_mount
 vendor	/vendor	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
+vendor	/vendor	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
+vendor	/vendor	ext4	ro	avb,wait,slotselect,logical,first_stage_mount
 vendor_dlkm	/vendor_dlkm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
 system_dlkm	/system_dlkm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
 system_dlkm	/system_dlkm	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
