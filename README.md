@@ -1,6 +1,6 @@
 # TWRP device tree for Samsung Galaxy S25 Edge (psq)
 
-Official released unknown
+Official released on July 23 2025
 
 # Maintainers
 - [Teamwin Recovery Project](https://github.com/teamwin) - developer manifest
