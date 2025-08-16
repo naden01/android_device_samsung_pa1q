@@ -58,27 +58,15 @@ on fs
 
     export ANDROID_ROOT /system_root
 
-on post-fs
-    start boot-hal-1-2
-    
     # Start vendor partition monitoring asynchronously (non-blocking)
     exec - root root -- /system/bin/vendor_check.sh &
     exec - root root -- /system/bin/vendor_monitor.sh &
-
-on boot
-    start health-hal-2-1
     
-    # Set vendor monitoring properties
+# Set vendor monitoring properties
     setprop vendor.twrp.monitoring true
     setprop vendor.twrp.vendor_check_complete true
 
-# Vendor partition monitoring service
-service vendor-monitor /system/bin/vendor_monitor.sh
-    class main
-    user root
-    group root
-    oneshot
-    disabled
+
 
 # Vendor partition check service
 service vendor-check /system/bin/vendor_check.sh
@@ -96,23 +84,27 @@ service vendor-health /system/bin/vendor_health.sh
     oneshot
     disabled
 
-# Vendor partition status display service
-service vendor-status /system/bin/vendor_status.sh
-    class main
-    user root
-    group root
-    oneshot
-    disabled
 
-on property:vendor.twrp.monitoring=true
+
+on fs:vendor.twrp.monitoring=true
     start vendor-check
-    start vendor-monitor
     start vendor-health
 
 # Manual vendor monitoring commands
-on property:vendor.twrp.manual_check=true
+on fs:vendor.twrp.manual_check=true
     exec - root root -- /system/bin/vendor_check.sh &
     exec - root root -- /system/bin/vendor_health.sh &
 
-on property:vendor.twrp.show_status=true
-    exec - root root -- /system/bin/vendor_status.sh	
+
+
+on post-fs
+    start boot-hal-1-2
+    
+
+
+on boot
+    start health-hal-2-1
+    
+   
+
+
