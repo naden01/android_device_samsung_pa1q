@@ -50,10 +50,69 @@ on fs
     mkdir /vendor/firmware_mnt
     mount vfat /dev/block/bootdevice/by-name/apnhlos /vendor/firmware_mnt
 
+    # Wait for vendor partition to be available
+    wait /dev/block/platform/soc/${ro.boot.bootdevice}/by-name/vendor
+    
+    # Create vendor monitoring directory
+    mkdir /tmp/vendor_monitor 0755 root root
+
     export ANDROID_ROOT /system_root
 
 on post-fs
     start boot-hal-1-2
+    
+    # Start vendor partition monitoring
+    exec - root root -- /system/bin/vendor_check.sh
+    exec - root root -- /system/bin/vendor_monitor.sh
 
 on boot
-    start health-hal-2-1	
+    start health-hal-2-1
+    
+    # Set vendor monitoring properties
+    setprop vendor.twrp.monitoring true
+    setprop vendor.twrp.vendor_check_complete true
+
+# Vendor partition monitoring service
+service vendor-monitor /system/bin/vendor_monitor.sh
+    class main
+    user root
+    group root
+    oneshot
+    disabled
+
+# Vendor partition check service
+service vendor-check /system/bin/vendor_check.sh
+    class main
+    user root
+    group root
+    oneshot
+    disabled
+
+# Vendor partition health check service
+service vendor-health /system/bin/vendor_health.sh
+    class main
+    user root
+    group root
+    oneshot
+    disabled
+
+# Vendor partition status display service
+service vendor-status /system/bin/vendor_status.sh
+    class main
+    user root
+    group root
+    oneshot
+    disabled
+
+on property:vendor.twrp.monitoring=true
+    start vendor-check
+    start vendor-monitor
+    start vendor-health
+
+# Manual vendor monitoring commands
+on property:vendor.twrp.manual_check=true
+    exec - root root -- /system/bin/vendor_check.sh
+    exec - root root -- /system/bin/vendor_health.sh
+
+on property:vendor.twrp.show_status=true
+    exec - root root -- /system/bin/vendor_status.sh	
