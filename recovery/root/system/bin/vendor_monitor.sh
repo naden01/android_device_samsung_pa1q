@@ -12,6 +12,13 @@ echo "$(date): Vendor monitoring started" > $LOG_FILE
 # Function to check vendor partition status
 check_vendor_status() {
     local timestamp=$(date)
+    
+    # Only check if vendor is mounted
+    if ! mountpoint -q $VENDOR_MOUNT; then
+        echo "$timestamp: Vendor not mounted yet - skipping check" >> $LOG_FILE
+        return 0
+    fi
+    
     local mount_status=$(mount | grep "$VENDOR_MOUNT" 2>/dev/null)
     local partition_size=$(df $VENDOR_MOUNT 2>/dev/null | tail -1 | awk '{print $2}')
     local free_space=$(df $VENDOR_MOUNT 2>/dev/null | tail -1 | awk '{print $4}')
@@ -43,8 +50,8 @@ check_vendor_integrity() {
     
     # Check if vendor is mounted and accessible
     if ! mountpoint -q $VENDOR_MOUNT; then
-        echo "$timestamp: ERROR: Vendor partition not mounted!" >> $LOG_FILE
-        return 1
+        echo "$timestamp: Vendor not mounted yet - skipping integrity check" >> $LOG_FILE
+        return 0
     fi
     
     # Check if we can read vendor directory
@@ -69,11 +76,11 @@ check_vendor_integrity() {
 # Main monitoring loop
 echo "$(date): Starting vendor partition monitoring..." >> $LOG_FILE
 
-# Initial check
+# Initial check - non-blocking
 check_vendor_status
 check_vendor_integrity
 
-# Continuous monitoring
+# Continuous monitoring in background
 while true; do
     sleep $CHECK_INTERVAL
     
