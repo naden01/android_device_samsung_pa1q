@@ -93,7 +93,7 @@ repo sync
 ```
 ## Cloning the device tree
 ```bash
-git clone https://github.com/naden01/android_device_samsung_pa1q.git -b test device/samsung/pa1q
+git clone https://github.com/naden01/android_device_samsung_pa1q.git -b android-12.1 device/samsung/pa1q
 ```
 ## Build
 ```bash
