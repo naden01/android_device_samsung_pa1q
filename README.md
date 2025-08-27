@@ -74,7 +74,7 @@ Minor checks
 - [✔] battery level
 - [✔] temperature
 - [✔] encrypted backups
-- [✔] input devices via USB (USB-OTG) - keyboard and mouse
+- [✖] input devices via USB (USB-OTG) - keyboard and mouse
 - [✔] USB mass storage export
 - [✔] set brightness
 - [✖] vibrate
