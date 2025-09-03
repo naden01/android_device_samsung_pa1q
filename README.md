@@ -89,7 +89,7 @@ repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aos
 ```
 ## Sync manifest twrp-12.1
 ```bash
-repo sync
+repo sync -j$(nproc --all)
 ```
 ## Cloning the device tree
 ```bash
