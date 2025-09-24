@@ -1,7 +1,10 @@
 sec_boot_stat.ko
 sec_log_buf.ko
+sec_qc_upload_cause.ko
+sec_qc_qcom_reboot_reason.ko
 sec_debug.ko
 sec_arm64_ap_context.ko
+sec_qc_rst_exinfo.ko
 gh_arm_drv.ko
 sched-walt.ko
 qcom_ipc_logging.ko
@@ -9,9 +12,9 @@ ssg.ko
 blk-sec-common.ko
 blk-sec-stats.ko
 blk-sec-wb.ko
-kunit.ko
 qcom-pdc.ko
 phy-qcom-ufs.ko
+phy-qcom-ufs-qmp-v4-niobe.ko
 phy-qcom-ufs-qmp-v4-sun.ko
 phy-qcom-ufs-qrbtc-sdm845.ko
 pinctrl-msm.ko
@@ -23,10 +26,16 @@ clk-qcom.ko
 clk-dummy.ko
 gdsc-regulator.ko
 clk-rpmh.ko
+dispcc-tuna.ko
 gcc-sun.ko
 gcc-kera.ko
 gcc-tuna.ko
+gpucc-tuna.ko
+gpucc-kera.ko
+cambistmclkcc-tuna.ko
+camcc-tuna.ko
 tcsrcc-tuna.ko
+camcc-kera.ko
 camcc-sun.ko
 evacc-sun.ko
 gpucc-sun.ko
@@ -34,6 +43,7 @@ dispcc-sun.ko
 cambistmclkcc-sun.ko
 tcsrcc-sun.ko
 videocc-sun.ko
+msm_gpi.ko
 qcom_aoss.ko
 cmd-db.ko
 crm-v2.ko
@@ -70,9 +80,6 @@ arm_smmu.ko
 msm_dma_iommu_mapping.ko
 qcom_iommu_util.ko
 iommu-logger.ko
-regmap-kunit.ko
-regmap-ram.ko
-regmap-raw-ram.ko
 qti-regmap-debugfs.ko
 qcom-spmi-pmic.ko
 qcom_dma_heaps.ko
@@ -81,6 +88,7 @@ spmi-pmic-arb.ko
 rtc-pm8xxx.ko
 i2c-algo-bit.ko
 i2c-gpio.ko
+i2c-msm-geni.ko
 qcom-dload-mode.ko
 qcom-reboot-reason.ko
 qti_thermal_vendor_hooks.ko
@@ -89,6 +97,7 @@ bcl_pmic5.ko
 cpu_hotplug.ko
 thermal_pause.ko
 softdog.ko
+qcom-cpufreq-hw.ko
 qcom-cpufreq-thermal.ko
 sdhci-msm.ko
 cqhci.ko
@@ -109,6 +118,7 @@ nvmem_qcom-spmi-sdam.ko
 icc-bcm-voter.ko
 icc-rpmh.ko
 qnoc-sun.ko
+qnoc-kera.ko
 qnoc-tuna.ko
 qnoc-qos.ko
 icc-debug.ko
@@ -117,10 +127,11 @@ sec_key_notifier.ko
 sec_param.ko
 sec_blk_helper.ko
 sec_qc_debug.ko
-sec_qc_upload_cause.ko
+sec_qc_rbcmd.ko
 sec_qc_logger.ko
 sec_qc_summary.ko
 sec_pmsg.ko
+sec_reboot_cmd.ko
 sec_upload_cause.ko
 sec_crashkey.ko
 sec_crashkey_long.ko
