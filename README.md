@@ -1,4 +1,4 @@
-# TWRP device tree for Samsung Galaxy S25 (pa1q)
+# TWRP device tree for Samsung Galaxy S25  (pa1q)
 
 Official released on July 20 2025 
 
@@ -93,7 +93,7 @@ repo sync -j$(nproc --all)
 ```
 ## Cloning the device tree
 ```bash
-git clone https://github.com/naden01/android_device_samsung_pa1q.git -b S25 device/samsung/pa1q
+git clone https://github.com/naden01/android_device_samsung_pa1q.git -b android-12.1 device/samsung/pa1q
 ```
 ## Build
 ```bash

@@ -48,10 +48,14 @@ vendor	/vendor	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
 vendor	/vendor	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
 vendor	/vendor	ext4	ro	avb,wait,slotselect,logical,first_stage_mount
 vendor_dlkm	/vendor_dlkm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
+vendor_dlkm	/vendor_dlkm	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
+vendor_dlkm	/vendor_dlkm	ext4	ro	avb,wait,slotselect,logical,first_stage_mount
 system_dlkm	/system_dlkm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
 system_dlkm	/system_dlkm	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
 system_dlkm	/system_dlkm	ext4	ro	avb,wait,slotselect,logical,first_stage_mount
 odm	/odm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
+odm	/odm	f2fs	ro	avb,wait,slotselect,logical,first_stage_mount
+odm	/odm	ext4	ro	avb,wait,slotselect,logical,first_stage_mount
 
 /dev/block/by-name/boot      				  /boot                  emmc      defaults                                           slotselect,first_stage_mount,formattable,avb=vbmeta
 /dev/block/by-name/vbmeta                               /vbmeta                emmc      defaults					         slotselect,first_stage_mount,formattable,avb
@@ -60,7 +64,7 @@ odm	/odm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
 /dev/block/by-name/metadata	/metadata	f2fs	noatime,nosuid,nodev,discard,sync,fsync_mode=strict,data_flush	wait,check,formattable,wrappedkey,first_stage_mount
 /dev/block/bootdevice/by-name/userdata	/data	f2fs	noatime,nosuid,nodev,discard,usrquota,grpquota,fsync_mode=nobarrier,reserve_root=32768,resgid=5678,inlinecrypt	latemount,wait,check,,quota,reservedsize=128M,sysfs_path=/sys/devices/platform/soc/1d84000.ufshc,checkpoint=fs,fscompress,ddp,fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0,metadata_encryption=aes-256-xts:wrappedkey_v0,keydirectory=/metadata/vold/metadata_encryption
 /dev/block/bootdevice/by-name/persist	/mnt/vendor/persist	ext4	noatime,nosuid,nodev,noauto_da_alloc,discard,journal_checksum,data=ordered,errors=panic	wait,check
-/dev/block/bootdevice/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
+/dev/block/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
 /dev/block/bootdevice/by-name/apnhlos                   /vendor/firmware_mnt   vfat    ro,context=u:object_r:firmware_file:s0,shortname=lower,uid=0,gid=1000,dmask=227,fmask=337 wait,slotselect
 /dev/block/bootdevice/by-name/modem                     /vendor/firmware-modem vfat    ro,shortname=lower,uid=1000,gid=1000,dmask=227,fmask=337,context=u:object_r:firmware_file:s0 wait,slotselect
 /dev/block/bootdevice/by-name/efs	/mnt/vendor/efs	ext4	noatime,nosuid,nodev,noauto_da_alloc,discard,journal_checksum,data=ordered,errors=panic	wait,check
@@ -69,10 +73,12 @@ odm	/odm	erofs	ro	avb,wait,slotselect,logical,first_stage_mount
 /dev/block/bootdevice/by-name/vendor_boot               /vendor_boot           emmc    defaults                                             defaults,slotselect,first_stage_mount
 /dev/block/bootdevice/by-name/init_boot                 /init_boot             emmc    defaults                                             defaults,slotselect,first_stage_mount
 /dev/block/bootdevice/by-name/vm-bootsys                /product/vm-system     ext4    ro,nosuid,nodev,barrier=1                            defaults,slotselect
+/dev/block/by-name/pvmfw                                /pvmfw                 emmc      defaults                                           slotselect,first_stage_mount,avb=vbmeta
+/dev/block/bootdevice/by-name/vm-persist	/mnt/product/vm-persist	ext4	noatime,nosuid,nodev,noauto_da_alloc,discard,journal_checksum,data=ordered,errors=panic	defaults,nofail,check
 
 #CSC
-/dev/block/by-name/prism                                /prism                 ext4    ro,barrier=1    avb,slotselect,nofail,first_stage_mount
-/dev/block/by-name/optics                               /optics                ext4    ro,barrier=1    avb,slotselect,nofail,first_stage_mount
+/dev/block/by-name/prism	/prism	ext4	ro	avb,slotselect,nofail,first_stage_mount
+/dev/block/by-name/optics	/optics	ext4	ro	avb,slotselect,nofail,first_stage_mount
 
 #VOLD
 /devices/platform/soc/*.ssusb/*.dwc3/xhci-hcd.*.auto*   auto                   vfat    default                                              voldmanaged=usb:auto
