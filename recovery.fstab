@@ -49,3 +49,5 @@ system_dlkm					/system_dlkm	erofs	ro			wait,slotselect,logical,first_stage_moun
 /dev/block/platform/soc/1d84000.ufshc/by-name/misc	/misc	emmc	defaults	defaults,first_stage_mount
 /dev/block/dm-1                                    /odm   erofs ro wait,slotselect,logical,first_stage_mount
 /dev/block/platform/soc/1d84000.ufshc/by-name/vm-bootsys /vm-bootsys ext4 ro wait,slotselect,logical,first_stage_mount
+
+/devices/platform/soc/a600000.ssusb/a600000.dwc3/xhci-hcd.1.auto /usb-otg  auto    voldmanaged=usb:auto
