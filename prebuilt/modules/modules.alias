@@ -448,6 +448,8 @@ alias usb:v1A0Ap0104d*dc*dsc*dp*ic*isc*ip*in* ehset
 alias usb:v1A0Ap0106d*dc*dsc*dp*ic*isc*ip*in* ehset
 alias usb:v1A0Ap0107d*dc*dsc*dp*ic*isc*ip*in* ehset
 alias usb:v1A0Ap0108d*dc*dsc*dp*ic*isc*ip*in* ehset
+alias of:N*T*Cqcom,spmi-pmic-err-debug spmi_pmic_err_debug
+alias of:N*T*Cqcom,spmi-pmic-err-debugC* spmi_pmic_err_debug
 alias of:N*T*Cqcom,tuna-gpucc gpucc_tuna
 alias of:N*T*Cqcom,tuna-gpuccC* gpucc_tuna
 alias of:N*T*Cqcom,tuna-gx_clkctl gpucc_tuna
