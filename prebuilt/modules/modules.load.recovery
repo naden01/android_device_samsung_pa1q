@@ -72,6 +72,7 @@ secure_buffer.ko
 qcom_cpu_vendor_hooks.ko
 pmic-pon-log.ko
 debug_symbol.ko
+qfprom-sys.ko
 proxy-consumer.ko
 rpmh-regulator.ko
 stub-regulator.ko
@@ -114,6 +115,7 @@ gh_msgq.ko
 gh_rm_drv.ko
 gunyah_loader.ko
 qcom_llcc_pmu.ko
+nvmem_qfprom.ko
 nvmem_qcom-spmi-sdam.ko
 icc-bcm-voter.ko
 icc-rpmh.ko
@@ -203,10 +205,10 @@ sysmon_subsystem_stats.ko
 cdsprm.ko
 adsp_sleepmon.ko
 panel_event_notifier.ko
+spmi-pmic-err-debug.ko
 wcd_usbss_i2c.ko
 dmesg_dumper.ko
 gh_tlmm_vm_mem_access.ko
-qfprom-sys.ko
 msm_performance.ko
 msm_show_epoch.ko
 qti_dmof_scmi.ko
@@ -299,7 +301,6 @@ governor_msm_adreno_tz.ko
 governor_gpubw_mon.ko
 qcom-spmi-adc5-gen3.ko
 qcom-vadc-common.ko
-nvmem_qfprom.ko
 sec_reloc_gpio.ko
 sec_arm64_fsimd_debug.ko
 sec_arm64_debug.ko
