@@ -12,6 +12,7 @@ Official released on July 23 2025
 - [Carlo](https://github.com/cd-Crypton) - developer
 - [Igorcv98](https://xdaforums.com/m/igorcv98.12835801) - tester S25 Ultra
 - [Michael](https://4pda.to/forum/index.php?showuser=221836) - tester S25 Ultra
+- [DarkJanine](https://github.com/DarkJanine) - tester
 
 # Samsung S25Ultra
 <p align="left" width="100%">
