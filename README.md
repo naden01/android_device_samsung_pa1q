@@ -10,6 +10,7 @@ Official released on July 20 2025
 - [Archer](https://github.com/archer0305) - developer
 - [Ahmed](https://github.com/GitFASTBOOT) - developer
 - [Carlo](https://github.com/cd-Crypton) - developer
+- [DarkJanine](https://github.com/DarkJanine) - tester
 
 # Samsung S25
 <p align="left" width="100%">
