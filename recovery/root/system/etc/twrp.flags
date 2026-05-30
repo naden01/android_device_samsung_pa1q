@@ -3,7 +3,7 @@
 /system_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system		flags=backup=0;slotselect;flashimg;display="System Image"
 /vendor_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor		flags=backup=0;slotselect;flashimg;display="Vendor Image"
 /product_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/product		flags=backup=0;slotselect;flashimg;display="Product Image"
-/odm_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/odm		flags=backup=0;slotselect;flashimg;display="Odm Image
+/odm_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/odm		flags=backup=0;slotselect;flashimg;display="Odm Image"
 /system_ext_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_ext	flags=backup=0;slotselect;flashimg;display="System_EXT Image"
 /vendor_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor_dlkm	flags=backup=0;slotselect;flashimg;display="Vendor_DLKM Image"
 /system_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_dlkm	flags=backup=0;slotselect;flashimg;display="System_DLKM Image"
@@ -38,5 +38,4 @@
 /vm-bootsys	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vm-bootsys		flags=backup=1;slotselect;flashimg;display="Vm_Bootsys Image"
 
 # Removable storage
-/omr	auto		/dev/block/platform/soc/1d84000.ufshc/by-name/vm-bootsys			flags=display="VM_Bootsys_Storage";storage
 /usb-otg	auto		/dev/block/sde1	/dev/block/sde			flags=display="USB-OTG";storage;wipeingui;removable
