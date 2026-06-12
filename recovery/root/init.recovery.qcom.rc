@@ -103,7 +103,11 @@ on post-fs
 
 on boot
     start health-hal-2-1
-    
+
+    # Release Samsung USB Secure Lock so USB-OTG mode works in recovery
+    wait /sys/class/usb_notify/usb_control/usb_sl 5
+    write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
+
 
    
 
