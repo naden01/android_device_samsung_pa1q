@@ -15,24 +15,32 @@ SYS=/mnt/system_real
 mkdir -p "$SYS" 2>/dev/null
 
 # Locate the real A16 system partition (logical/super). TWRP maps these under
-# /dev/block/mapper. Try the active slot first, then the bare name.
-if [ ! -e "$SYS/bin/bootstrap/linker64" ]; then
+# /dev/block/mapper. The partition is erofs and `mount` will NOT auto-probe it,
+# so the fs type is given explicitly (fallback to ext4/f2fs for other builds).
+# NOTE: the mounted tree is a full root container - its top-level `bin`/`etc`
+# are absolute symlinks into /system, so the real A16 payload lives one level
+# down under system/ (system/bin/bootstrap/linker64, system/lib64/...).
+if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
     for src in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
         [ -e "$src" ] || continue
-        mount -o ro "$src" "$SYS" 2>/dev/null && echo "mounted real system from $src" && break
+        for t in erofs ext4 f2fs; do
+            mount -t "$t" -o ro "$src" "$SYS" 2>/dev/null && \
+                echo "mounted real system from $src ($t)" && break 2
+        done
     done
 fi
 
-LINKER="$SYS/bin/bootstrap/linker64"
+LINKER="$SYS/system/bin/bootstrap/linker64"
 if [ ! -e "$LINKER" ]; then
     echo "FATAL: A16 bootstrap linker not found at $LINKER (real system not mounted?)"
     echo "mapper devices:"; ls -la /dev/block/mapper/ 2>/dev/null
+    echo "contents of $SYS:"; ls -la "$SYS" 2>/dev/null
     exit 1
 fi
 
 # A16 libs: bootstrap bionic first, then real system, then the (already mounted)
 # A16 vendor partition. This is the matching ABI set, isolated from TWRP's libs.
-LIBS="$SYS/lib64/bootstrap:$SYS/lib64:$SYS/lib64/vndk-sp:/vendor/lib64:/vendor/lib64/hw"
+LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 export ANDROID_DATA=/data
 export ANDROID_ROOT=/system
 
