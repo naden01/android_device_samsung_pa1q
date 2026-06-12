@@ -108,6 +108,16 @@ on boot
     wait /sys/class/usb_notify/usb_control/usb_sl 5
     write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
 
+    start decrypt-hals
+
+service decrypt-hals /system/bin/decrypt_hals.sh
+    class main
+    user root
+    group root system
+    seclabel u:r:recovery:s0
+    oneshot
+    disabled
+
 
    
 
