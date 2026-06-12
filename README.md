@@ -65,7 +65,7 @@ Medium checks
 - [✔] backup/restore to/from external (USB-OTG) storage
 - [✖] decrypt /data
 - [✔] Correct date
-- [✖] USB-OTG (flash drive)
+- [✔] USB-OTG (flash drive)
 
 Minor checks
 - [✔] MTP export
@@ -75,7 +75,7 @@ Minor checks
 - [✔] battery level
 - [✔] temperature
 - [✔] encrypted backups
-- [✖] input devices via USB (USB-OTG) - keyboard and mouse
+- [✔] input devices via USB (USB-OTG) - keyboard and mouse
 - [✔] USB mass storage export
 - [✔] set brightness
 - [✖] vibrate
