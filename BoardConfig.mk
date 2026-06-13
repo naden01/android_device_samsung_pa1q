@@ -106,22 +106,27 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# Crypto: FULLY DISABLED so TWRP always boots, no startup decrypt at all.
-# Disabling only TW_INCLUDE_FBE_METADATA_DECRYPT was not enough (the build still
-# hung in fscrypt_mount_metadata_encrypted -> blocking waitForService() on
-# KeyMint). Turning TW_INCLUDE_CRYPTO off compiles the entire crypto path out of
-# Decrypt_Data(), so there is no blocking call left to hang on the logo.
-# We decrypt OUT-OF-BAND instead: boot unconditionally, bring the A16 security
-# stack up on-demand (decrypt_hals.sh), debug keystore2/KeyMint live, then drive
-# the metadata unwrap ourselves. Re-enable these only once the stack is stable.
-# NOTE: a BoardConfig flag change is a -D compile flag; do a CLEAN recovery build
-# (remove out/target/product/pa1q/obj/.../recovery + recovery image) or the
-# affected .o may not be recompiled and the flag silently won't take effect.
-TW_INCLUDE_CRYPTO := false
-TW_INCLUDE_CRYPTO_FBE := false
-BOARD_USES_QCOM_FBE_DECRYPTION := false
+# Crypto: keep the FBE/crypto INFRASTRUCTURE in the image, but do NOT run the
+# blocking metadata decrypt at startup.
+#   - TW_INCLUDE_CRYPTO / _FBE = true: keeps servicemanager + keystore2 +
+#     hwservicemanager in the recovery image (pulled by TW_INCLUDE_CRYPTO_FBE in
+#     bootable/recovery/Android.mk). We NEED keystore2 for the A16 KeyMint decrypt
+#     path, and fully disabling crypto (WIP6) stripped it -> /system/bin/keystore2
+#     went missing and qseecomd/KeyMint bring-up got less stable.
+#   - TW_INCLUDE_FBE_METADATA_DECRYPT = false: the ONLY startup blocker. The
+#     blocking fscrypt_mount_metadata_encrypted() -> waitForService(KeyMint) call
+#     lives solely under this flag, so with it off TWRP reaches the GUI and never
+#     hangs on the logo. Decrypt is driven out-of-band (decrypt_hals.sh on-demand).
+# IMPORTANT: this is a -D compile flag. You MUST do a CLEAN recovery build or the
+# already-built partitionmanager.o is reused and the change silently does nothing
+# (this exact stale-build bit us: a flag flip that "didn't take" and hung again).
+# Clean: rm -rf out/target/product/pa1q/recovery out/target/product/pa1q/recovery.img \
+#   out/target/product/pa1q/obj/EXECUTABLES/recovery_intermediates ; then mka recoveryimage.
+TW_INCLUDE_CRYPTO := true
+TW_INCLUDE_CRYPTO_FBE := true
+BOARD_USES_QCOM_FBE_DECRYPTION := true
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
-BOARD_USES_METADATA_PARTITION := false
+BOARD_USES_METADATA_PARTITION := true
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
