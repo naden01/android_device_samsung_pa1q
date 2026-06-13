@@ -131,10 +131,13 @@ service a16-decrypt /system/bin/a16_decrypt.sh
     disabled
 
 # A16 servicemanager - claims /dev/binder once the orchestrator stops the A12 one.
+# MUST run as user ROOT: as user system it SIGABRTs immediately (cannot become the
+# binder context manager / set servicemanager.ready). Confirmed live - as root it is
+# stable and sets servicemanager.ready=true; as system it crash-loops on signal 6.
 service a16-servicemanager /system/bin/hal_run.sh /mnt/system_real/system/bin/servicemanager
     class core
-    user system
-    group system readproc
+    user root
+    group root readproc
     seclabel u:r:recovery:s0
     disabled
 
