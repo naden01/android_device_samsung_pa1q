@@ -15,7 +15,7 @@ LOG=/tmp/a16_decrypt.log
 exec >>"$LOG" 2>&1
 echo "===== a16_decrypt start (uptime $(cat /proc/uptime 2>/dev/null)) ====="
 
-SYS=/mnt/system_real
+SYS=/a16
 LK="$SYS/system/bin/bootstrap/linker64"
 LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 
