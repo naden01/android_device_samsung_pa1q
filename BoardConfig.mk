@@ -106,27 +106,29 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# Crypto: keep the FBE/crypto INFRASTRUCTURE in the image, but do NOT run the
-# blocking metadata decrypt at startup.
-#   - TW_INCLUDE_CRYPTO / _FBE = true: keeps servicemanager + keystore2 +
-#     hwservicemanager in the recovery image (pulled by TW_INCLUDE_CRYPTO_FBE in
-#     bootable/recovery/Android.mk). We NEED keystore2 for the A16 KeyMint decrypt
-#     path, and fully disabling crypto (WIP6) stripped it -> /system/bin/keystore2
-#     went missing and qseecomd/KeyMint bring-up got less stable.
-#   - TW_INCLUDE_FBE_METADATA_DECRYPT = false: the ONLY startup blocker. The
-#     blocking fscrypt_mount_metadata_encrypted() -> waitForService(KeyMint) call
-#     lives solely under this flag, so with it off TWRP reaches the GUI and never
-#     hangs on the logo. Decrypt is driven out-of-band (decrypt_hals.sh on-demand).
-# IMPORTANT: this is a -D compile flag. You MUST do a CLEAN recovery build or the
-# already-built partitionmanager.o is reused and the change silently does nothing
-# (this exact stale-build bit us: a flag flip that "didn't take" and hung again).
-# Clean: rm -rf out/target/product/pa1q/recovery out/target/product/pa1q/recovery.img \
-#   out/target/product/pa1q/obj/EXECUTABLES/recovery_intermediates ; then mka recoveryimage.
-TW_INCLUDE_CRYPTO := true
-TW_INCLUDE_CRYPTO_FBE := true
-BOARD_USES_QCOM_FBE_DECRYPTION := true
+# Crypto: FULLY DISABLED. This is the only config that is GUARANTEED not to hang
+# on the logo - with TW_INCLUDE_CRYPTO off the entire Decrypt_Data() path (both
+# the metadata fscrypt_mount_metadata_encrypted() AND the FBE Decrypt_Device("!")
+# attempt) is compiled out, so there is no startup decrypt call left to block on
+# KeyMint/keystore2.
+#
+# We do NOT rely on TWRP's built-in decrypt at all. The A16 security stack is run
+# OUT-OF-BAND on-demand by decrypt_hals.sh from the real mounted partitions:
+#   - servicemanager / hwservicemanager: already running from base TWRP.
+#   - qseecomd, KeyMint, gatekeeper: from the real vendor (vendor_a -> /vendor).
+#   - keystore2: from the real system dump (system_a -> /mnt/system_real/system/
+#     bin/keystore2), launched via the bootstrap linker. Nothing to bundle into
+#     the image - it is taken straight from the mounted A16 system.
+# So we get a guaranteed-bootable recovery AND the full stack, with zero blocking
+# crypto code in TWRP itself.
+#
+# IMPORTANT: -D compile flag -> a CLEAN recovery build is required or the stale
+# partitionmanager.o is reused and the flag silently has no effect (this bit us).
+TW_INCLUDE_CRYPTO := false
+TW_INCLUDE_CRYPTO_FBE := false
+BOARD_USES_QCOM_FBE_DECRYPTION := false
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
-BOARD_USES_METADATA_PARTITION := true
+BOARD_USES_METADATA_PARTITION := false
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
