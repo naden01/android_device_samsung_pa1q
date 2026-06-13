@@ -107,22 +107,25 @@ on boot
     wait /sys/class/usb_notify/usb_control/usb_sl 5
     write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
 
-# NOTE: decrypt is NOT auto-started at boot - the orchestrator stops the A12
-# servicemanager (to give /dev/binder to the A16 one), which the TWRP GUI relies on,
-# so we only do it ON DEMAND. Trigger once TWRP is up:  setprop twrp.a16decrypt.run 1
+    # AUTO-START the A16 decrypt at boot (no manual setprop needed). decrypt.sh waits
+    # for TWRP to map the super partitions + a short settle before it swaps in the A16
+    # servicemanager, so this does not race TWRP's own startup.
+    setprop twrp.decrypt.run 1
 
-# === A16 decrypt: run the WHOLE Android-16 security stack from the dump, one version
-# === (the A12 wall was: A16 KeyMint can't register in the A12 servicemanager).
-on property:twrp.a16decrypt.run=1
+# A16 decrypt: run the WHOLE Android-16 security stack from the dump, one version
+# (the A12 wall was: A16 KeyMint can't register in the A12 servicemanager). The stack
+# lives under /decrypt (NOT /mnt - vold tears down /mnt mounts). Auto-started above;
+# can also be re-triggered manually:  setprop twrp.decrypt.run 1
+on property:twrp.decrypt.run=1
     mkdir /mnt/vendor/efs/DAK 0775 system system
     chown system system /mnt/vendor/efs/DAK/gakkeybox
     chmod 0644 /mnt/vendor/efs/DAK/gakkeybox
     mkdir /data/vendor/keymaster 0775 system system
-    start a16-decrypt
+    start decrypt
 
 # Oneshot orchestrator: mount dump -> VINTF overlay -> stop A12 sm/keystore2 ->
 # start the A16 stack below -> drive the metadata decrypt via the matched A16 vdc.
-service a16-decrypt /system/bin/a16_decrypt.sh
+service decrypt /system/bin/decrypt.sh
     class main
     user root
     group root system
@@ -134,7 +137,7 @@ service a16-decrypt /system/bin/a16_decrypt.sh
 # MUST run as user ROOT: as user system it SIGABRTs immediately (cannot become the
 # binder context manager / set servicemanager.ready). Confirmed live - as root it is
 # stable and sets servicemanager.ready=true; as system it crash-loops on signal 6.
-service a16-servicemanager /system/bin/hal_run.sh /a16/system/bin/servicemanager
+service decrypt-servicemanager /system/bin/hal_run.sh /decrypt/system/bin/servicemanager
     class core
     user root
     group root readproc
@@ -142,7 +145,7 @@ service a16-servicemanager /system/bin/hal_run.sh /a16/system/bin/servicemanager
     disabled
 
 # qseecomd - stock notify-topology socket + root/drmrpc (TEE daemon KeyMint needs).
-service a16-qseecomd /system/bin/hal_run.sh /vendor/bin/qseecomd
+service decrypt-qseecomd /system/bin/hal_run.sh /vendor/bin/qseecomd
     socket notify-topology stream 660 system drmrpc
     class main
     user root
@@ -151,7 +154,7 @@ service a16-qseecomd /system/bin/hal_run.sh /vendor/bin/qseecomd
     disabled
 
 # KeyMint - stock user system, group system drmrpc.
-service a16-keymint /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.security.keymint-service
+service decrypt-keymint /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.security.keymint-service
     class main
     user system
     group system drmrpc
@@ -159,7 +162,7 @@ service a16-keymint /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.secur
     disabled
 
 # keystore2 - from the dump, DB dir /tmp/misc/keystore (matches TWRP's keystore2.rc).
-service a16-keystore2 /system/bin/hal_run.sh /a16/system/bin/keystore2 /tmp/misc/keystore
+service decrypt-keystore2 /system/bin/hal_run.sh /decrypt/system/bin/keystore2 /tmp/misc/keystore
     class main
     user root
     group root readproc log
@@ -169,7 +172,7 @@ service a16-keystore2 /system/bin/hal_run.sh /a16/system/bin/keystore2 /tmp/misc
 # vold - THE decrypt driver. init creates its sockets and passes the OPEN fds. The
 # `knoxnative` socket is the one whose absence killed a bare vold launch
 # ("fail to get knoxnative socket -> Critical error occured. close.").
-service a16-vold /system/bin/hal_run.sh /a16/system/bin/vold --blkid_context=u:r:recovery:s0 --blkid_untrusted_context=u:r:recovery:s0 --fsck_context=u:r:recovery:s0 --fsck_untrusted_context=u:r:recovery:s0
+service decrypt-vold /system/bin/hal_run.sh /decrypt/system/bin/vold --blkid_context=u:r:recovery:s0 --blkid_untrusted_context=u:r:recovery:s0 --fsck_context=u:r:recovery:s0 --fsck_untrusted_context=u:r:recovery:s0
     socket vold stream 0660 root mount
     socket cryptd stream 0660 root mount
     socket knoxnative stream 0660 root root
