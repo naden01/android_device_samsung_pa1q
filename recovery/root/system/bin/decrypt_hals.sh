@@ -117,8 +117,14 @@ start_hal() {
     bin="$1"; name="$2"; tag="$3"
     if [ ! -e "$bin" ]; then echo "skip $name: $bin missing"; return 1; fi
     if is_running "$name"; then echo "skip $name: already running"; return 0; fi
-    LD_LIBRARY_PATH="$LIBS" "$LINKER" "$bin" >"/tmp/hal_$tag.log" 2>&1 &
-    echo "started $name ($bin) pid $!"
+    # setsid: detach into a NEW session/process group. This script runs as a
+    # oneshot init service, and modern init (A12+) sends SIGKILL to the whole
+    # oneshot process group when the script exits ("Untracked pid N received
+    # signal 9" in dmesg killed KeyMint). setsid moves the HAL out of that group
+    # so it survives the script returning. Confirmed: without it the HALs die the
+    # instant decrypt_hals.sh finishes.
+    LD_LIBRARY_PATH="$LIBS" setsid "$LINKER" "$bin" >"/tmp/hal_$tag.log" 2>&1 &
+    echo "started $name ($bin) pid $! (detached via setsid)"
 }
 
 # qseecomd first: it opens /dev/smcinvoke and loads the TEE trustlets KeyMint
