@@ -25,6 +25,14 @@ if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
         [ -e "$s" ] && mount -t erofs -o ro "$s" "$SYS" 2>/dev/null && echo "mounted system_real from $s" && break
     done
 fi
+# /vendor (A16) holds the HAL binaries/libs/trustlets. runatboot.sh has not mounted
+# it this early, so mount it ourselves - else the services can't open /vendor/bin/*.
+if [ ! -e /vendor/bin/qseecomd ]; then
+    for v in /dev/block/mapper/vendor_a /dev/block/mapper/vendor_b /dev/block/mapper/vendor; do
+        [ -e "$v" ] && mount -t erofs -o ro "$v" /vendor 2>/dev/null && echo "mounted /vendor from $v" && break
+    done
+fi
+echo "vendor qseecomd present: $([ -e /vendor/bin/qseecomd ] && echo yes || echo NO)"
 
 echo "starting km-qseecomd..."
 setprop ctl.start km-qseecomd

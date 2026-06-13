@@ -17,6 +17,15 @@ if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
         mount -t erofs -o ro "$s" "$SYS" 2>/dev/null && break
     done
 fi
+# Ensure the A16 vendor is mounted at /vendor (holds the HAL binaries + libs +
+# trustlets). At early boot runatboot.sh has not mounted it yet, so do it here -
+# otherwise the linker can't even open /vendor/bin/* and the service crash-loops.
+if [ ! -e /vendor/bin/qseecomd ]; then
+    for v in /dev/block/mapper/vendor_a /dev/block/mapper/vendor_b /dev/block/mapper/vendor; do
+        [ -e "$v" ] || continue
+        mount -t erofs -o ro "$v" /vendor 2>/dev/null && break
+    done
+fi
 export LD_LIBRARY_PATH="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 export ANDROID_DATA=/data ANDROID_ROOT=/system
 exec "$SYS/system/bin/bootstrap/linker64" "$@"
