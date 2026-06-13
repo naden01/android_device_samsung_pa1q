@@ -18,7 +18,7 @@ while [ "$n" -lt 60 ]; do            # up to ~30s
 done
 echo "mapper ready after ~$((n * 500))ms (system_a=$([ -e /dev/block/mapper/system_a ] && echo y || echo n))"
 
-SYS=/mnt/system_real
+SYS=/a16
 if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
     mkdir -p "$SYS" 2>/dev/null
     for s in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
