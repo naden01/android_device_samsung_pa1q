@@ -1,3 +1,8 @@
+# A16 builds enforce 16 KB ELF page-size alignment via check_elf_file. Prebuilts we
+# pull in (e.g. external/magisk-prebuilt/magiskboot) are 4 KB-aligned and fail that
+# check. Recovery doesn't need the 16 KB guarantee, so disable the prebuilt check.
+PRODUCT_CHECK_PREBUILT_MAX_PAGE_SIZE := false
+
 # A/B
 AB_OTA_UPDATER := true
 
