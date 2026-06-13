@@ -25,16 +25,30 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+# Stripped to match the WORKING m55xq (Samsung Android-16) recovery init pattern.
+# The old A12-era custom additions were REMOVED because m55xq (a booting A16 recovery)
+# does not have them and any of them can break the A16 recovery boot:
+#   - the synchronous `exec /system/bin/vendor_check.sh` in `on fs` (custom script,
+#     uses `local` outside a function; blocks the critical fs stage),
+#   - the vendor-check / vendor-health services and their triggers,
+#   - `start boot-hal-1-2` (on post-fs),
+#   - the USB-secure-lock unlock `on boot`.
+# Also already gone: the A12 manual KeyMint/qseecomd bootstrap-linker injection.
+# Keep only what m55xq keeps + the pa1q vendor_boot/fastbootd props and firmware
+# mount. Re-add any removed bit individually ONLY if needed once recovery boots.
+
 on init
-    # to cut charging battery path
+    # cut charging battery path
     write /sys/class/power_supply/battery/siop_level 0
-	
-on init
     write /sys/class/backlight/panel0-backlight/brightness 200
     setprop sys.usb.configfs 1
     setprop ro.twrp.vendor_boot true
     setprop ro.twrp.fastbootd 1
     setprop ro.boot.fastbootd false
+    start health-hal-2-1
+
+on boot
+    start health-hal-2-1
 
 on property:ro.boot.usbcontroller=*
     setprop sys.usb.controller ${ro.boot.usbcontroller}
@@ -45,77 +59,10 @@ on property:ro.boot.usbcontroller=*
 on fs
     wait /dev/block/platform/soc/${ro.boot.bootdevice}
     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
-	
-	# Mount firmware
+    # Mount firmware
     mkdir /vendor/firmware_mnt
     mount vfat /dev/block/bootdevice/by-name/apnhlos /vendor/firmware_mnt
-
-    # Wait for vendor partition to be available
-    wait /dev/block/platform/soc/${ro.boot.bootdevice}/by-name/vendor
-    
-    # Create vendor monitoring directory
-    mkdir /tmp/vendor_monitor 0755 root root
-
     export ANDROID_ROOT /system_root
-
-    # Start vendor partition monitoring early for faster boot
-    exec - root root -- /system/bin/vendor_check.sh 
-   
-    
-# Set vendor monitoring properties
-    setprop vendor.twrp.vendor_check_complete true
-
-
-
-# Vendor partition check service
-service vendor-check /system/bin/vendor_check.sh
-    class main
-    user root
-    group root
-    oneshot
-    disabled
-
-# Vendor partition health check service
-service vendor-health /system/bin/vendor_health.sh
-    class main
-    user root
-    group root
-    oneshot
-    disabled
-
-
-
-on property:vendor.twrp.monitoring=true
-    start vendor-check
-    start vendor-health
-
-# Manual vendor monitoring commands
-on property:vendor.twrp.manual_check=true
-    exec - root root -- /system/bin/vendor_check.sh &
-    exec - root root -- /system/bin/vendor_health.sh &
-
-
-
-on post-fs
-    start boot-hal-1-2
-
-
-on boot
-    start health-hal-2-1
-
-    # Release Samsung USB Secure Lock so USB-OTG mode works in recovery
-    wait /sys/class/usb_notify/usb_control/usb_sl 5
-    write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
-
-# NOTE: the A12-era manual security-HAL injection (km-bringup / km-qseecomd /
-# km-keymint via the bootstrap linker, mounting the A16 vendor over /vendor, the
-# /odm + VINTF-manifest patching) was REMOVED here. It only existed because the old
-# Android-12 base could not run the device's Android-16 vendor HALs. On this
-# matching Android-16 base the vendor KeyMint is ABI-compatible and is brought up by
-# TWRP's own decrypt flow, so none of that is needed. The km_bringup.sh / hal_run.sh
-# scripts are kept in the tree for reference only and are no longer wired into init.
-# If the stock A16 decrypt flow turns out NOT to start KeyMint in recovery, the fix
-# is a SIMPLE native `service`/`start` of the vendor keymint - no bootstrap-linker.
 
 
    
