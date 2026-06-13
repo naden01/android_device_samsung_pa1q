@@ -106,19 +106,22 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# Crypto: keep FBE/decrypt code compiled, but DO NOT auto-attempt the metadata
-# decrypt at TWRP startup. The metadata path calls vold's
-# fscrypt_mount_metadata_encrypted() which does a blocking waitForService() on
-# KeyMint; with the security HALs not yet up that call hangs forever -> logo hang.
-# We decrypt out-of-band instead: boot TWRP unconditionally, bring the full A16
-# security stack up on-demand (decrypt_hals.sh), then trigger decrypt once the
-# stack is verified healthy. Flip TW_INCLUDE_FBE_METADATA_DECRYPT back to true
-# only after keystore2/KeyMint are stable in recovery.
-TW_INCLUDE_CRYPTO := true
-TW_INCLUDE_CRYPTO_FBE := true
-BOARD_USES_QCOM_FBE_DECRYPTION := true
+# Crypto: FULLY DISABLED so TWRP always boots, no startup decrypt at all.
+# Disabling only TW_INCLUDE_FBE_METADATA_DECRYPT was not enough (the build still
+# hung in fscrypt_mount_metadata_encrypted -> blocking waitForService() on
+# KeyMint). Turning TW_INCLUDE_CRYPTO off compiles the entire crypto path out of
+# Decrypt_Data(), so there is no blocking call left to hang on the logo.
+# We decrypt OUT-OF-BAND instead: boot unconditionally, bring the A16 security
+# stack up on-demand (decrypt_hals.sh), debug keystore2/KeyMint live, then drive
+# the metadata unwrap ourselves. Re-enable these only once the stack is stable.
+# NOTE: a BoardConfig flag change is a -D compile flag; do a CLEAN recovery build
+# (remove out/target/product/pa1q/obj/.../recovery + recovery image) or the
+# affected .o may not be recompiled and the flag silently won't take effect.
+TW_INCLUDE_CRYPTO := false
+TW_INCLUDE_CRYPTO_FBE := false
+BOARD_USES_QCOM_FBE_DECRYPTION := false
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
-BOARD_USES_METADATA_PARTITION := true
+BOARD_USES_METADATA_PARTITION := false
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
