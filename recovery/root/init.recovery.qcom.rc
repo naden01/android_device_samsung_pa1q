@@ -107,9 +107,13 @@ on boot
     wait /sys/class/usb_notify/usb_control/usb_sl 5
     write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
 
-# A16 security stack is brought up ON-DEMAND, never at boot (the partitions it
-# needs are only mapped once TWRP is up, and a blocking startup decrypt hangs on
-# the logo). Trigger from GUI/terminal/adb:  setprop twrp.decrypt.run 1
+    # Auto-bring-up the A16 security stack (path A): set the trigger prop so KeyMint
+    # comes up and TWRP's startup metadata decrypt completes instead of hanging.
+    # km_bringup.sh waits for the super partitions to be mapped, so racing TWRP is
+    # fine. Can also be (re)triggered manually: setprop twrp.decrypt.run 1
+    setprop twrp.decrypt.run 1
+
+# A16 security stack bring-up (auto at boot via the prop above, or on-demand).
 #
 # The HALs are real init services (below), replicating the stock vendor .rc setup:
 # qseecomd gets its notify-topology socket and runs root/drmrpc; KeyMint runs as
