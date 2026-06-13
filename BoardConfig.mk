@@ -106,10 +106,18 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
+# Crypto: keep FBE/decrypt code compiled, but DO NOT auto-attempt the metadata
+# decrypt at TWRP startup. The metadata path calls vold's
+# fscrypt_mount_metadata_encrypted() which does a blocking waitForService() on
+# KeyMint; with the security HALs not yet up that call hangs forever -> logo hang.
+# We decrypt out-of-band instead: boot TWRP unconditionally, bring the full A16
+# security stack up on-demand (decrypt_hals.sh), then trigger decrypt once the
+# stack is verified healthy. Flip TW_INCLUDE_FBE_METADATA_DECRYPT back to true
+# only after keystore2/KeyMint are stable in recovery.
 TW_INCLUDE_CRYPTO := true
 TW_INCLUDE_CRYPTO_FBE := true
 BOARD_USES_QCOM_FBE_DECRYPTION := true
-TW_INCLUDE_FBE_METADATA_DECRYPT := true
+TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
 
 # Display
