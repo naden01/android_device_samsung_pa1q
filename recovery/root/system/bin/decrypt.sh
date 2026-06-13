@@ -49,7 +49,20 @@ if [ ! -e /vendor/bin/qseecomd ]; then
         [ -e "$v" ] && mount -t erofs -o ro "$v" /vendor 2>/dev/null && break
     done
 fi
-echo "linker=$([ -e "$LK" ] && echo ok || echo MISS) vendor=$([ -e /vendor/bin/qseecomd ] && echo ok || echo MISS)"
+# Re-mount the modem/firmware partition over the A16 /vendor. init mounts apnhlos at
+# /vendor/firmware_mnt on `on fs`, but we just mounted the A16 vendor OVER /vendor,
+# which SHADOWS it - so KeyMint's TEE trustlet (skeymast.mbn, under
+# /vendor/firmware_mnt/image/, per firmware_class.path) becomes unreachable and
+# KeyMint fails to open the TEE (shared-secret ret -49). Verified live: re-mounting
+# it makes the trustlet load and shared-secret succeed.
+mkdir -p /vendor/firmware_mnt 2>/dev/null
+if [ ! -e /vendor/firmware_mnt/image ]; then
+    for fw in /dev/block/bootdevice/by-name/apnhlos /dev/block/by-name/apnhlos \
+              /dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos; do
+        [ -e "$fw" ] && mount -t vfat -o ro "$fw" /vendor/firmware_mnt 2>/dev/null && break
+    done
+fi
+echo "linker=$([ -e "$LK" ] && echo ok || echo MISS) vendor=$([ -e /vendor/bin/qseecomd ] && echo ok || echo MISS) trustlet=$([ -e /vendor/firmware_mnt/image/skeymast.mbn ] && echo ok || echo MISS)"
 
 # 2. VINTF overlay: the A16 servicemanager returns "NULL VINTF MANIFEST" without a
 #    base /vendor/etc/vintf/manifest.xml. /vendor has the real keymint fragment but
@@ -109,14 +122,15 @@ echo "----- running A16 procs -----"; ps -A 2>/dev/null | grep -iE "linker64" | 
 USERDATA=$(ls /dev/block/by-name/userdata /dev/block/bootdevice/by-name/userdata \
               /dev/block/platform/soc/1d84000.ufshc/by-name/userdata 2>/dev/null | head -1)
 echo "----- decrypt: userdata=$USERDATA -----"
-echo "[vdc cryptfs mountFstab]"; lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data 2>&1
+# A16 vdc dropped raw commands; cryptfs mountFstab now needs 6 args:
+#   cryptfs mountFstab <blkDevice> <mountPoint> <isZoned:bool> <userDevices>
+# (verified live: the 4-arg form -> "Raw commands are no longer supported").
+echo "[vdc cryptfs mountFstab - 6 args]"
+lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" 2>&1
 sleep 3
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "SUCCESS: /data mounted"; grep -E " /data " /proc/mounts
 else
-    echo "/data not mounted yet - vdc command form may need adjusting; trying volume mount"
-    lrun "$SYS/system/bin/vdc" volume mount "$USERDATA" 2>&1
-    sleep 2
-    grep -E " /data " /proc/mounts || echo "/data still not mounted"
+    echo "/data not mounted - check decrypt.log for the vold mountFstab error"
 fi
 echo "===== decrypt done ====="
