@@ -106,29 +106,30 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# Crypto: FULLY DISABLED. This is the only config that is GUARANTEED not to hang
-# on the logo - with TW_INCLUDE_CRYPTO off the entire Decrypt_Data() path (both
-# the metadata fscrypt_mount_metadata_encrypted() AND the FBE Decrypt_Device("!")
-# attempt) is compiled out, so there is no startup decrypt call left to block on
-# KeyMint/keystore2.
+# Crypto RE-ENABLED (path A). We now have a reliable way to bring KeyMint up
+# (km-bringup, auto-started at boot), so TWRP's built-in metadata decrypt is back:
+# fscrypt_mount_metadata_encrypted() does waitForService(KeyMint), which is now the
+# INTENDED behaviour (a bounded wait that completes once km-bringup registers
+# KeyMint) instead of an indefinite hang. KeyMint unwraps the keymaster_key_blob in
+# /metadata/vold/metadata_encryption and TWRP mounts the decrypted /data.
 #
-# We do NOT rely on TWRP's built-in decrypt at all. The A16 security stack is run
-# OUT-OF-BAND on-demand by decrypt_hals.sh from the real mounted partitions:
-#   - servicemanager / hwservicemanager: already running from base TWRP.
-#   - qseecomd, KeyMint, gatekeeper: from the real vendor (vendor_a -> /vendor).
-#   - keystore2: from the real system dump (system_a -> /mnt/system_real/system/
-#     bin/keystore2), launched via the bootstrap linker. Nothing to bundle into
-#     the image - it is taken straight from the mounted A16 system.
-# So we get a guaranteed-bootable recovery AND the full stack, with zero blocking
-# crypto code in TWRP itself.
+# TW_FORCE_KEYMASTER_VER: TWRP's keymaster-version probe reads the vendor VINTF
+# manifest for HIDL 'android.hardware.keymaster' and finds nothing (this device is
+# AIDL KeyMint) -> "Using keymaster version '' for decryption". Forcing the version
+# (gta9p trick) makes the decrypt use KeyMint instead of bailing on an empty value.
 #
-# IMPORTANT: -D compile flag -> a CLEAN recovery build is required or the stale
-# partitionmanager.o is reused and the flag silently has no effect (this bit us).
-TW_INCLUDE_CRYPTO := false
-TW_INCLUDE_CRYPTO_FBE := false
-BOARD_USES_QCOM_FBE_DECRYPTION := false
-TW_INCLUDE_FBE_METADATA_DECRYPT := false
-BOARD_USES_METADATA_PARTITION := false
+# Risk acknowledged: if km-bringup fails to register KeyMint, the startup decrypt
+# can hang on the logo - but adbd is up from `on fs` so /tmp/*.log + logcat are
+# pullable to debug, and km-bringup is now proven to bring qseecomd+KeyMint up.
+#
+# IMPORTANT: -D compile flags -> a CLEAN recovery build is required or the stale
+# partitionmanager.o is reused and the flags silently have no effect (this bit us).
+TW_INCLUDE_CRYPTO := true
+TW_INCLUDE_CRYPTO_FBE := true
+BOARD_USES_QCOM_FBE_DECRYPTION := true
+TW_INCLUDE_FBE_METADATA_DECRYPT := true
+BOARD_USES_METADATA_PARTITION := true
+TW_FORCE_KEYMASTER_VER := true
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
