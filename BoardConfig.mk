@@ -124,12 +124,17 @@ PLATFORM_VERSION := 12
 #
 # IMPORTANT: -D compile flags -> a CLEAN recovery build is required or the stale
 # partitionmanager.o is reused and the flags silently have no effect (this bit us).
+# TW_INCLUDE_FBE_METADATA_DECRYPT is OFF: TWRP must NOT run its own metadata decrypt
+# at startup. With it on, TWRP's Decrypt_Data() does waitForService(KeyMint) at boot
+# and HANGS on the logo (KeyMint is no longer auto-started - the A16 stack is
+# on-demand via a16_decrypt.sh, which also drives the actual decrypt through A16
+# vold). Keep CRYPTO/_FBE on so the A12 keystore2/servicemanager modules stay in the
+# image (a16_decrypt.sh ctl.stops them before swapping in the A16 ones).
 TW_INCLUDE_CRYPTO := true
 TW_INCLUDE_CRYPTO_FBE := true
 BOARD_USES_QCOM_FBE_DECRYPTION := true
-TW_INCLUDE_FBE_METADATA_DECRYPT := true
+TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
-TW_FORCE_KEYMASTER_VER := true
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
