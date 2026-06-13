@@ -98,7 +98,16 @@ on property:vendor.twrp.manual_check=true
 
 on post-fs
     start boot-hal-1-2
-    
+
+    # Bring up qseecomd/KeyMint and BLOCK here until the decrypt HALs are ready
+    # (decrypt_hals.sh sets twrp.keymint.ready and returns). exec_start stops init
+    # at post-fs, which runs strictly before `on boot` -> class_start default ->
+    # the TWRP GUI that calls Decrypt_Data(). So KeyMint is registered before the
+    # first metadata-decrypt attempt: race eliminated without touching TWRP sources.
+    # Safe vs logo-hang: adbd is already up from `on fs`, and the script always
+    # returns within its bounded readiness timeout (worst case ready=0, TWRP still
+    # boots, just without decrypt).
+    exec_start decrypt-hals
 
 
 on boot
@@ -107,8 +116,6 @@ on boot
     # Release Samsung USB Secure Lock so USB-OTG mode works in recovery
     wait /sys/class/usb_notify/usb_control/usb_sl 5
     write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
-
-    start decrypt-hals
 
 service decrypt-hals /system/bin/decrypt_hals.sh
     class main
