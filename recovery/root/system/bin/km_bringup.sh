@@ -7,6 +7,17 @@ LOG=/tmp/km_bringup.log
 exec >>"$LOG" 2>&1
 echo "===== km_bringup start (uptime $(cat /proc/uptime 2>/dev/null)) ====="
 
+# Auto-started at boot, so the super/logical partitions may not be mapped yet -
+# TWRP maps them during its own startup. Wait (bounded) for system_a to appear.
+# TWRP's Decrypt_Data() blocks in waitForService(KeyMint) meanwhile, so racing is
+# safe: it resumes the moment we register KeyMint below.
+n=0
+while [ "$n" -lt 60 ]; do            # up to ~30s
+    [ -e /dev/block/mapper/system_a ] && [ -e /dev/block/mapper/vendor_a ] && break
+    n=$((n + 1)); sleep 0.5
+done
+echo "mapper ready after ~$((n * 500))ms (system_a=$([ -e /dev/block/mapper/system_a ] && echo y || echo n))"
+
 SYS=/mnt/system_real
 if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
     mkdir -p "$SYS" 2>/dev/null
