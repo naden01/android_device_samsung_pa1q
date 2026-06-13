@@ -72,7 +72,38 @@ sleep 1
 start_hal /vendor/bin/hw/android.hardware.gatekeeper-service gatekeeper
 start_hal /vendor/bin/hw/android.hardware.security.keymint-service keymint
 
-sleep 2
+# --- readiness gate -------------------------------------------------------
+# init (post-fs) blocks on this script via exec_start, so we must RETURN, not
+# hang. Wait (bounded) until KeyMint is up and stable, publish twrp.keymint.ready,
+# then exit. The backgrounded HALs above keep running after we return. On timeout
+# we still publish ready=0 so init proceeds and TWRP boots (just without decrypt)
+# instead of hanging on the logo.
+KM_RE="android.hardware.security.keymint|keymint"
+ready=0
+stable=0
+i=0
+while [ "$i" -lt 20 ]; do          # up to ~10s (20 * 0.5s)
+    if [ -x /system/bin/service ]; then
+        # Strong signal: KeyMint AIDL instance actually registered with servicemanager
+        if /system/bin/service check android.hardware.security.keymint.IKeyMintDevice/default 2>/dev/null | grep -q ": found"; then
+            ready=1; break
+        fi
+    else
+        # Fallback (no `service` tool in image): process alive and stable for 3 checks
+        if ps -A 2>/dev/null | grep -iE "$KM_RE" | grep -qv grep; then
+            stable=$((stable + 1))
+            [ "$stable" -ge 3 ] && { ready=1; break; }
+        else
+            stable=0
+        fi
+    fi
+    i=$((i + 1))
+    sleep 0.5
+done
+setprop twrp.keymint.ready "$ready"
+
 echo "----- running procs -----"
 ps -A 2>/dev/null | grep -iE "qseecomd|keymint|gatekeeper" | grep -v grep
+if [ -x /system/bin/service ]; then km_check=aidl; else km_check=proc-stable; fi
+echo "keymint readiness=$ready waited=$((i * 500))ms check=$km_check"
 echo "===== decrypt_hals done ====="
