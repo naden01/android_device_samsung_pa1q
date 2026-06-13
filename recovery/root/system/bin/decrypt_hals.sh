@@ -1,61 +1,103 @@
 #!/system/bin/sh
 # Bring up the Android-16 vendor security HALs (qseecomd, KeyMint, Gatekeeper)
 # inside the Android-12-based TWRP so /data (FBE v2 + metadata enc, HW-wrapped
-# keys) can be decrypted. The HAL binaries are Android 16; running them on
-# TWRP's own A12 libs fails on ABI/namespace. So we run them with the matching
-# A16 libs+linker taken from the real (mounted) system and vendor partitions,
-# launched through the bootstrap dynamic linker with an explicit library path,
-# which sidesteps the vendor linker-namespace restriction.
+# keys) can later be decrypted. The HAL binaries are Android 16; running them on
+# TWRP's own A12 libs fails on ABI/namespace, so we run them through the matching
+# A16 bootstrap linker with an explicit library path taken from the real (mounted)
+# system + vendor partitions, which sidesteps the vendor linker-namespace rules.
+#
+# RUN ON-DEMAND, not at boot: the super/logical partitions this depends on
+# (system_a/vendor_a under /dev/block/mapper) are only mapped once TWRP itself is
+# up, and a blocking startup decrypt hangs on the logo. Trigger via
+# `setprop twrp.decrypt.run 1` (init starts us) or run directly. Idempotent.
 
 LOG=/tmp/decrypt_hals.log
 exec >>"$LOG" 2>&1
-echo "===== decrypt_hals start ====="
+echo "===== decrypt_hals start ($(getprop ro.boot.serialno) $(cat /proc/uptime 2>/dev/null)) ====="
 
 SYS=/mnt/system_real
 mkdir -p "$SYS" 2>/dev/null
 
-# Locate the real A16 system partition (logical/super). TWRP maps these under
-# /dev/block/mapper. The partition is erofs and `mount` will NOT auto-probe it,
-# so the fs type is given explicitly (fallback to ext4/f2fs for other builds).
-# NOTE: the mounted tree is a full root container - its top-level `bin`/`etc`
-# are absolute symlinks into /system, so the real A16 payload lives one level
-# down under system/ (system/bin/bootstrap/linker64, system/lib64/...).
-if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
-    for src in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
-        [ -e "$src" ] || continue
-        for t in erofs ext4 f2fs; do
-            mount -t "$t" -o ro "$src" "$SYS" 2>/dev/null && \
-                echo "mounted real system from $src ($t)" && break 2
-        done
+# --- 0. wait for the dynamic partitions to be mapped by TWRP -----------------
+# TWRP maps super -> /dev/block/mapper/{system_a,vendor_a,...} during its own
+# startup, so when run on-demand they are normally already present; we still poll
+# (bounded) in case decrypt is triggered very early.
+wait_mapper() {
+    dev="$1"; n=0
+    while [ "$n" -lt 40 ]; do            # up to ~20s
+        [ -e "$dev" ] && return 0
+        n=$((n + 1)); sleep 0.5
     done
-fi
-
-LINKER="$SYS/system/bin/bootstrap/linker64"
-if [ ! -e "$LINKER" ]; then
-    echo "FATAL: A16 bootstrap linker not found at $LINKER (real system not mounted?)"
-    echo "mapper devices:"; ls -la /dev/block/mapper/ 2>/dev/null
-    echo "contents of $SYS:"; ls -la "$SYS" 2>/dev/null
+    return 1
+}
+SYS_SRC=""
+for s in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
+    if wait_mapper "$s"; then SYS_SRC="$s"; break; fi
+done
+VND_SRC=""
+for v in /dev/block/mapper/vendor_a /dev/block/mapper/vendor_b /dev/block/mapper/vendor; do
+    if wait_mapper "$v"; then VND_SRC="$v"; break; fi
+done
+echo "mapper: system=$SYS_SRC vendor=$VND_SRC"
+if [ -z "$SYS_SRC" ] || [ -z "$VND_SRC" ]; then
+    echo "FATAL: super not mapped yet (system/vendor missing under /dev/block/mapper)"
+    ls -la /dev/block/mapper/ 2>/dev/null
     exit 1
 fi
 
-# A16 libs: bootstrap bionic first, then real system, then the (already mounted)
-# A16 vendor partition. This is the matching ABI set, isolated from TWRP's libs.
+# --- 1. mount the real A16 system + vendor -----------------------------------
+# system is a full root container: its top-level bin/etc are absolute symlinks
+# into /system, so the real payload lives under system/ (system/bin/bootstrap/...).
+# vendor is mounted OVER /vendor because the HAL binaries dlopen absolute
+# /vendor/lib64 paths and load trustlets from /vendor/firmware*.
+mount_ro() {
+    src="$1"; dst="$2"; sentinel="$3"
+    [ -e "$dst/$sentinel" ] && { echo "already mounted: $dst"; return 0; }
+    [ -d "$dst" ] || mkdir -p "$dst" 2>/dev/null
+    for t in erofs ext4 f2fs; do
+        if mount -t "$t" -o ro "$src" "$dst" 2>/dev/null; then
+            echo "mounted $src -> $dst ($t)"; return 0
+        fi
+    done
+    echo "FATAL: could not mount $src -> $dst"; return 1
+}
+mount_ro "$SYS_SRC" "$SYS" "system/bin/bootstrap/linker64" || exit 1
+mount_ro "$VND_SRC" /vendor "bin/qseecomd"                 || exit 1
+
+LINKER="$SYS/system/bin/bootstrap/linker64"
 LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 export ANDROID_DATA=/data
 export ANDROID_ROOT=/system
 
-start_hal() {
-    bin="$1"; name="$2"
-    if [ ! -e "$bin" ]; then echo "skip $name: $bin missing"; return; fi
-    LD_LIBRARY_PATH="$LIBS" "$LINKER" "$bin" &
-    echo "started $name ($bin) pid $!"
-}
+# --- 2. dependency check ------------------------------------------------------
+# Verify the binaries and the critical shared objects (from the live ldd closure)
+# are present before we launch, so a missing blob is reported here instead of a
+# silent immediate crash. Non-fatal: we log and continue so partial bring-up is
+# still observable.
+QSEECOMD=/vendor/bin/qseecomd
+GATEKEEPER=/vendor/bin/hw/android.hardware.gatekeeper-service
+KEYMINT=/vendor/bin/hw/android.hardware.security.keymint-service
+missing=0
+echo "----- dependency check -----"
+for f in "$LINKER" "$QSEECOMD" "$KEYMINT" "$GATEKEEPER" \
+         "$SYS/system/lib64/libbinder_ndk.so" "$SYS/system/lib64/libc++.so" \
+         "$SYS/system/lib64/libbinder.so" "$SYS/system/lib64/libutils.so" \
+         /vendor/lib64/libQSEEComAPI.so \
+         /vendor/lib64/libskeymint10device.so \
+         /vendor/lib64/libspukeymintdeviceutils.so \
+         /vendor/lib64/vendor.samsung.hardware.keymint-V3-ndk.so \
+         /vendor/lib64/android.hardware.security.keymint-V3-ndk.so \
+         /vendor/lib64/libsec_esek.so /vendor/lib64/libhermes_cred.so; do
+    if [ -e "$f" ]; then echo "  ok   $f"; else echo "  MISS $f"; missing=$((missing + 1)); fi
+done
+echo "dependency check: $missing missing"
 
-# KeyMint reads provisioning (DAK keybox) from /mnt/vendor/efs; persist holds
-# device data. Best-effort, read-only - missing/empty is non-fatal for decrypt.
+# --- 3. provisioning partitions ----------------------------------------------
+# KeyMint reads provisioning (DAK keybox) from efs; persist holds device data.
 mount_byname() {
     name="$1"; dst="$2"
     [ -d "$dst" ] || mkdir -p "$dst" 2>/dev/null
+    grep -q " $dst " /proc/mounts 2>/dev/null && { echo "already mounted: $dst"; return; }
     for src in /dev/block/by-name/$name /dev/block/bootdevice/by-name/$name \
                /dev/block/platform/soc/1d84000.ufshc/by-name/$name; do
         [ -e "$src" ] || continue
@@ -66,44 +108,62 @@ mount_byname() {
 mount_byname efs /mnt/vendor/efs
 mount_byname persist /mnt/vendor/persist
 
-# qseecomd first: it bootstraps the TEE / loads trustlets that KeyMint needs.
-start_hal /vendor/bin/qseecomd qseecomd
-sleep 1
-start_hal /vendor/bin/hw/android.hardware.gatekeeper-service gatekeeper
-start_hal /vendor/bin/hw/android.hardware.security.keymint-service keymint
+# --- 4. launch the HALs -------------------------------------------------------
+# Each HAL's stdout/stderr is captured to its own log so crashes are debuggable.
+# (HAL fatal output also goes to logcat/kmsg via liblog; these files catch the
+# rest.) Skip a HAL that is already running so the script is idempotent.
+is_running() { ps -A 2>/dev/null | grep -F "$1" | grep -qv grep; }
+start_hal() {
+    bin="$1"; name="$2"; tag="$3"
+    if [ ! -e "$bin" ]; then echo "skip $name: $bin missing"; return 1; fi
+    if is_running "$name"; then echo "skip $name: already running"; return 0; fi
+    LD_LIBRARY_PATH="$LIBS" "$LINKER" "$bin" >"/tmp/hal_$tag.log" 2>&1 &
+    echo "started $name ($bin) pid $!"
+}
 
-# --- readiness gate -------------------------------------------------------
-# init (post-fs) blocks on this script via exec_start, so we must RETURN, not
-# hang. Wait (bounded) until KeyMint is up and stable, publish twrp.keymint.ready,
-# then exit. The backgrounded HALs above keep running after we return. On timeout
-# we still publish ready=0 so init proceeds and TWRP boots (just without decrypt)
-# instead of hanging on the logo.
-KM_RE="android.hardware.security.keymint|keymint"
-ready=0
-stable=0
-i=0
-while [ "$i" -lt 20 ]; do          # up to ~10s (20 * 0.5s)
+# qseecomd first: it opens /dev/smcinvoke and loads the TEE trustlets KeyMint
+# needs. Wait until it reports the daemon is running (or times out) before
+# starting KeyMint, otherwise KeyMint races the TEE bring-up.
+start_hal "$QSEECOMD" qseecomd qseecomd
+n=0
+while [ "$n" -lt 20 ]; do
+    if logcat -d -s QSEECOMD 2>/dev/null | grep -q "QSEECOM DAEMON RUNNING"; then
+        echo "qseecomd: TEE daemon up"; break
+    fi
+    [ -e /dev/smcinvoke ] && grep -q smcinvoke /proc/*/maps 2>/dev/null && break
+    n=$((n + 1)); sleep 0.5
+done
+
+start_hal "$GATEKEEPER" gatekeeper gatekeeper
+start_hal "$KEYMINT" keymint keymint
+
+# --- 5. readiness -------------------------------------------------------------
+# KeyMint must register ALL of its AIDL instances (KeyMintDevice, SecureClock,
+# SharedSecret, RemotelyProvisionedComponent); keystore2 dereferences the lot, so
+# a half-registered/dead service is what crash-loops keystore2. Confirm the
+# process stays alive AND publish the prop the decrypt step will gate on.
+KM_RE="android.hardware.security.keymint|keymint-service"
+ready=0; stable=0; n=0
+while [ "$n" -lt 24 ]; do            # up to ~12s
     if [ -x /system/bin/service ]; then
-        # Strong signal: KeyMint AIDL instance actually registered with servicemanager
         if /system/bin/service check android.hardware.security.keymint.IKeyMintDevice/default 2>/dev/null | grep -q ": found"; then
             ready=1; break
         fi
     else
-        # Fallback (no `service` tool in image): process alive and stable for 3 checks
         if ps -A 2>/dev/null | grep -iE "$KM_RE" | grep -qv grep; then
-            stable=$((stable + 1))
-            [ "$stable" -ge 3 ] && { ready=1; break; }
+            stable=$((stable + 1)); [ "$stable" -ge 4 ] && { ready=1; break; }
         else
             stable=0
         fi
     fi
-    i=$((i + 1))
-    sleep 0.5
+    n=$((n + 1)); sleep 0.5
 done
 setprop twrp.keymint.ready "$ready"
 
-echo "----- running procs -----"
-ps -A 2>/dev/null | grep -iE "qseecomd|keymint|gatekeeper" | grep -v grep
+echo "----- running security procs -----"
+ps -A 2>/dev/null | grep -iE "qseecomd|keymint|gatekeeper|keystore2" | grep -v grep
+echo "----- keymint instances logged -----"
+logcat -d 2>/dev/null | grep -iE "keymint-service: adding|SecureClock|SharedSecret|RemotelyProvisioned" | tail -n 8
 if [ -x /system/bin/service ]; then km_check=aidl; else km_check=proc-stable; fi
-echo "keymint readiness=$ready waited=$((i * 500))ms check=$km_check"
+echo "keymint readiness=$ready check=$km_check missing_deps=$missing"
 echo "===== decrypt_hals done ====="
