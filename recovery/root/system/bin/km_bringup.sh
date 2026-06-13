@@ -34,6 +34,25 @@ if [ ! -e /vendor/bin/qseecomd ]; then
 fi
 echo "vendor qseecomd present: $([ -e /vendor/bin/qseecomd ] && echo yes || echo NO)"
 
+# Fix two things that crash keystore2 (TWRP's own, started from keystore2.rc), which
+# TWRP's metadata decrypt waits on (IKeystoreService). Both verified live:
+#  1) /odm/etc -> /vendor/odm/etc is a symlink LOOP; keystore2 reads VINTF, hits
+#     ELOOP on /odm/etc/vintf/manifest.xml and SIGSEGVs. Break the loop.
+#  2) keystore2 must find KeyMint declared in a device VINTF manifest or it crashes
+#     constructing the TEE security level (NAME_NOT_FOUND / legacy -68). Declare our
+#     AIDL KeyMint v3 so keystore2 connects to the instance we register.
+rm -f /odm/etc 2>/dev/null
+mkdir -p /odm/etc/vintf 2>/dev/null
+printf '%s\n' \
+  '<manifest version="1.0" type="device">' \
+  '  <hal format="aidl">' \
+  '    <name>android.hardware.security.keymint</name>' \
+  '    <version>3</version>' \
+  '    <interface><name>IKeyMintDevice</name><instance>default</instance></interface>' \
+  '  </hal>' \
+  '</manifest>' > /odm/etc/vintf/manifest.xml 2>/dev/null
+echo "odm keymint manifest written: $([ -e /odm/etc/vintf/manifest.xml ] && echo yes || echo NO)"
+
 echo "starting km-qseecomd..."
 setprop ctl.start km-qseecomd
 n=0
