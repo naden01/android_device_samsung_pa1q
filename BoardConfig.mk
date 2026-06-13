@@ -123,11 +123,16 @@ VENDOR_SECURITY_PATCH := 2099-12-31
 # not used by the keystore2/KeyMint decrypt path, so it is harmless. Re-add
 # TW_FORCE_KEYMASTER_VER + a keymaster_ver prop only if a probe actually blocks.)
 # A CLEAN recovery build is required when changing these -D flags.
-TW_INCLUDE_CRYPTO := true
-TW_INCLUDE_CRYPTO_FBE := true
-BOARD_USES_QCOM_FBE_DECRYPTION := true
-TW_INCLUDE_FBE_METADATA_DECRYPT := true
-BOARD_USES_METADATA_PARTITION := true
+# TEMPORARILY DISABLED for bringup isolation: get a MINIMAL recovery that boots
+# first. Crypto pulls keystore2/servicemanager/keymint into the image; if a
+# crash-looping keystore2 (or the crypto path) is what reboots TWRP at startup,
+# disabling this will boot. If it STILL bootloops with crypto off, crypto is ruled
+# out and the cause is graphics/core init. Re-enable once the recovery boots.
+TW_INCLUDE_CRYPTO := false
+TW_INCLUDE_CRYPTO_FBE := false
+BOARD_USES_QCOM_FBE_DECRYPTION := false
+TW_INCLUDE_FBE_METADATA_DECRYPT := false
+BOARD_USES_METADATA_PARTITION := false
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
