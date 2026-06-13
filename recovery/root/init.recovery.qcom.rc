@@ -107,21 +107,24 @@ on boot
     wait /sys/class/usb_notify/usb_control/usb_sl 5
     write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
 
-# decrypt_hals.sh is NOT auto-started: the super/logical partitions it depends on
-# (system_a/vendor_a under /dev/block/mapper) are only mapped later by TWRP itself,
-# and a blocking startup decrypt hangs on the logo (see BoardConfig metadata note).
-# It is triggered on-demand once TWRP is up: `setprop twrp.decrypt.run 1` from the
-# GUI/terminal/adb, or run the script directly. The script waits for the mapper
-# devices, mounts the real A16 system+vendor, and brings the security HALs up.
+# A16 security stack is brought up ON-DEMAND, never at boot (the partitions it
+# needs are only mapped once TWRP is up, and a blocking startup decrypt hangs on
+# the logo). Trigger from GUI/terminal/adb:  setprop twrp.decrypt.run 1
 on property:twrp.decrypt.run=1
-    start decrypt-hals
+    start km-stack
 
-service decrypt-hals /system/bin/decrypt_hals.sh
+# km-stack runs the whole A16 stack (qseecomd/KeyMint/gatekeeper/keystore2) inside
+# a PRIVATE mount namespace ("namespace mnt"). hal_stack.sh mounts the A16 vendor
+# over /vendor only INSIDE this namespace, so the global A12 TWRP /vendor is never
+# touched - that ABI mix previously crashed toybox (setsid/logcat/sh segfaulted).
+# NOT oneshot: hal_stack.sh blocks forever to keep the namespace + HALs alive, so
+# the HALs are not reaped when a launcher script exits (the old oneshot bug).
+service km-stack /system/bin/hal_stack.sh
     class main
     user root
     group root system
     seclabel u:r:recovery:s0
-    oneshot
+    namespace mnt
     disabled
 
 
