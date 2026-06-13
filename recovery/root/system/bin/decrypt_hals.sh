@@ -77,9 +77,10 @@ export ANDROID_ROOT=/system
 QSEECOMD=/vendor/bin/qseecomd
 GATEKEEPER=/vendor/bin/hw/android.hardware.gatekeeper-service
 KEYMINT=/vendor/bin/hw/android.hardware.security.keymint-service
+KEYSTORE2="$SYS/system/bin/keystore2"   # from the real A16 system dump, not bundled
 missing=0
 echo "----- dependency check -----"
-for f in "$LINKER" "$QSEECOMD" "$KEYMINT" "$GATEKEEPER" \
+for f in "$LINKER" "$QSEECOMD" "$KEYMINT" "$GATEKEEPER" "$KEYSTORE2" \
          "$SYS/system/lib64/libbinder_ndk.so" "$SYS/system/lib64/libc++.so" \
          "$SYS/system/lib64/libbinder.so" "$SYS/system/lib64/libutils.so" \
          /vendor/lib64/libQSEEComAPI.so \
@@ -165,6 +166,20 @@ while [ "$n" -lt 24 ]; do            # up to ~12s
     n=$((n + 1)); sleep 0.5
 done
 setprop twrp.keymint.ready "$ready"
+
+# --- 6. keystore2 (from the real A16 system dump, not bundled) -----------------
+# keystore2 is the system component vold's metadata decrypt talks to; it forwards
+# key ops to the now-registered KeyMint. Run it from the mounted real system via
+# the bootstrap linker, same pattern as the vendor HALs. Only start it once
+# KeyMint is up - keystore2 dereferences KeyMint on init and crash-loops (SIGSEGV)
+# if KeyMint is absent or half-registered (observed earlier).
+if [ "$ready" = 1 ] && [ -e "$KEYSTORE2" ]; then
+    mkdir -p /data/misc/keystore /metadata/keystore 2>/dev/null
+    start_hal "$KEYSTORE2" keystore2 keystore2
+    sleep 2
+else
+    echo "keystore2: skipped (KeyMint ready=$ready, bin exists=$([ -e "$KEYSTORE2" ] && echo yes || echo no))"
+fi
 
 echo "----- running security procs -----"
 ps -A 2>/dev/null | grep -iE "qseecomd|keymint|gatekeeper|keystore2" | grep -v grep
