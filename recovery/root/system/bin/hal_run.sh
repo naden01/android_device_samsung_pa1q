@@ -9,7 +9,7 @@
 # Mount the real A16 system (for the bootstrap linker + A16 libs), then exec the
 # linker on the HAL. LD_LIBRARY_PATH is set ONLY right before exec, so no A12
 # toybox ever runs with the A16 lib path (that mismatch SIGSEGV'd setsid/logcat).
-SYS=/a16
+SYS=/decrypt
 if [ ! -e "$SYS/system/bin/bootstrap/linker64" ]; then
     mkdir -p "$SYS" 2>/dev/null
     for s in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
