@@ -53,6 +53,17 @@ printf '%s\n' \
   '</manifest>' > /odm/etc/vintf/manifest.xml 2>/dev/null
 echo "odm keymint manifest written: $([ -e /odm/etc/vintf/manifest.xml ] && echo yes || echo NO)"
 
+# servicemanager read the device VINTF manifest at ITS startup, before our keymint
+# declaration existed - so it would not expose KeyMint to clients (keystore2 got
+# NAME_NOT_FOUND though the keymint process was alive on /dev/binder). Restart
+# servicemanager now so it re-reads the manifest WITH KeyMint declared, then bring
+# the HALs up so their registration sticks. TWRP's pending waitForService calls
+# simply reconnect to the new servicemanager.
+echo "restarting servicemanager to pick up keymint declaration..."
+setprop ctl.restart servicemanager
+sleep 3
+echo "servicemanager: $(getprop init.svc.servicemanager)"
+
 echo "starting km-qseecomd..."
 setprop ctl.start km-qseecomd
 n=0
