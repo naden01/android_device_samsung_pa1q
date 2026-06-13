@@ -134,7 +134,7 @@ service a16-decrypt /system/bin/a16_decrypt.sh
 # MUST run as user ROOT: as user system it SIGABRTs immediately (cannot become the
 # binder context manager / set servicemanager.ready). Confirmed live - as root it is
 # stable and sets servicemanager.ready=true; as system it crash-loops on signal 6.
-service a16-servicemanager /system/bin/hal_run.sh /mnt/system_real/system/bin/servicemanager
+service a16-servicemanager /system/bin/hal_run.sh /a16/system/bin/servicemanager
     class core
     user root
     group root readproc
@@ -159,7 +159,7 @@ service a16-keymint /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.secur
     disabled
 
 # keystore2 - from the dump, DB dir /tmp/misc/keystore (matches TWRP's keystore2.rc).
-service a16-keystore2 /system/bin/hal_run.sh /mnt/system_real/system/bin/keystore2 /tmp/misc/keystore
+service a16-keystore2 /system/bin/hal_run.sh /a16/system/bin/keystore2 /tmp/misc/keystore
     class main
     user root
     group root readproc log
@@ -169,7 +169,7 @@ service a16-keystore2 /system/bin/hal_run.sh /mnt/system_real/system/bin/keystor
 # vold - THE decrypt driver. init creates its sockets and passes the OPEN fds. The
 # `knoxnative` socket is the one whose absence killed a bare vold launch
 # ("fail to get knoxnative socket -> Critical error occured. close.").
-service a16-vold /system/bin/hal_run.sh /mnt/system_real/system/bin/vold --blkid_context=u:r:recovery:s0 --blkid_untrusted_context=u:r:recovery:s0 --fsck_context=u:r:recovery:s0 --fsck_untrusted_context=u:r:recovery:s0
+service a16-vold /system/bin/hal_run.sh /a16/system/bin/vold --blkid_context=u:r:recovery:s0 --blkid_untrusted_context=u:r:recovery:s0 --fsck_context=u:r:recovery:s0 --fsck_untrusted_context=u:r:recovery:s0
     socket vold stream 0660 root mount
     socket cryptd stream 0660 root mount
     socket knoxnative stream 0660 root root
