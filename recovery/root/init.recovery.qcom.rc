@@ -110,21 +110,44 @@ on boot
 # A16 security stack is brought up ON-DEMAND, never at boot (the partitions it
 # needs are only mapped once TWRP is up, and a blocking startup decrypt hangs on
 # the logo). Trigger from GUI/terminal/adb:  setprop twrp.decrypt.run 1
+#
+# The HALs are real init services (below), replicating the stock vendor .rc setup:
+# qseecomd gets its notify-topology socket and runs root/drmrpc; KeyMint runs as
+# system/drmrpc. That stock socket + user/group is why the daemons now persist - a
+# bare bootstrap-linker launch from a script gave qseecomd no socket and it died.
+# Also set up the KeyMint provisioning the stock keymint.rc expects (DAK keybox).
 on property:twrp.decrypt.run=1
-    start km-stack
+    mkdir /mnt/vendor/efs/DAK 0775 system system
+    chown system system /mnt/vendor/efs/DAK/gakkeybox
+    chmod 0644 /mnt/vendor/efs/DAK/gakkeybox
+    mkdir /data/vendor/keymaster 0775 system system
+    start km-bringup
 
-# km-stack runs the whole A16 stack (qseecomd/KeyMint/gatekeeper/keystore2) inside
-# a PRIVATE mount namespace ("namespace mnt"). hal_stack.sh mounts the A16 vendor
-# over /vendor only INSIDE this namespace, so the global A12 TWRP /vendor is never
-# touched - that ABI mix previously crashed toybox (setsid/logcat/sh segfaulted).
-# NOT oneshot: hal_stack.sh blocks forever to keep the namespace + HALs alive, so
-# the HALs are not reaped when a launcher script exits (the old oneshot bug).
-service km-stack /system/bin/hal_stack.sh
+# Oneshot orchestrator: starts qseecomd, waits for the TEE daemon, then KeyMint.
+service km-bringup /system/bin/km_bringup.sh
     class main
     user root
     group root system
     seclabel u:r:recovery:s0
-    namespace mnt
+    oneshot
+    disabled
+
+# qseecomd - mirrors /vendor/etc/init/qseecomd.rc (socket + root/drmrpc). Run via
+# hal_run.sh so it execs through the A16 bootstrap linker with the A16 lib path.
+service km-qseecomd /system/bin/hal_run.sh /vendor/bin/qseecomd
+    socket notify-topology stream 660 system drmrpc
+    class main
+    user root
+    group root drmrpc
+    seclabel u:r:recovery:s0
+    disabled
+
+# KeyMint - mirrors the stock keymint.rc (user system, group system drmrpc).
+service km-keymint /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.security.keymint-service
+    class main
+    user system
+    group system drmrpc
+    seclabel u:r:recovery:s0
     disabled
 
 
