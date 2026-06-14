@@ -136,6 +136,13 @@ BOARD_USES_QCOM_FBE_DECRYPTION := true
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
 
+# Custom recovery binary: apexservice stub for the A16-stack /data decrypt. The A16
+# keystore2 (run from the firmware dump by decrypt.sh) blocks during startup on
+# waitForService("apexservice") - apexd can't run in recovery - so this tiny native
+# service answers getActivePackages() empty and lets keystore2 finish. Built from the
+# device tree (apexservice_stub/) by Soong and installed into the recovery ramdisk.
+TARGET_RECOVERY_DEVICE_MODULES += apexservice_stub
+
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
 TW_FRAMERATE := 120
