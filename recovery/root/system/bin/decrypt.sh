@@ -59,7 +59,20 @@ fi
 # uptime, before ueventd finishes creating it) and it is slot-suffixed
 # (apnhlos_a/_b) - so wait briefly (bounded) and probe the real, slot-correct paths.
 # A miss here = trustlet unreachable = KeyMint can't open the TEE = mountFstab wedges.
+#
+# CRITICAL - mount PERMISSIONS: vfat has no on-disk unix perms; it synthesizes them
+# from uid/gid/fmask/dmask. A bare `mount -t vfat -o ro` inherits init's umask (0077),
+# so skeymast.mbn lands 0700 root:root - and the Samsung keymint_tee HAL runs as user
+# *system*, so it CANNOT open the TA: "Failed to open skeymast.mbn" -> nwd_tz_open
+# failed -> createOperation returns -49 SECURE_HW_COMMUNICATION_FAILED -> mountFstab
+# fails (fail_cause M02R). This is exactly why a hand mount (shell umask 0022) worked
+# but the baked one didn't. Mount root:system, group/other-readable to match stock.
 SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null)
+# Stock fstab.qcom firmware perms (root:system, files 0440) so the system-uid
+# keymint_tee HAL can open the TA. Init mounts apnhlos first and owns the vfat sb;
+# these opts only take effect if THIS is the first mount (init's mount failed/absent),
+# since a second mount of the same device reuses the existing sb's options.
+FWOPTS="ro,uid=0,gid=1000,fmask=337,dmask=227,shortname=lower"
 mkdir -p /vendor/firmware_mnt 2>/dev/null
 n=0
 while [ ! -e /vendor/firmware_mnt/image ] && [ "$n" -lt 40 ]; do
@@ -69,7 +82,7 @@ while [ ! -e /vendor/firmware_mnt/image ] && [ "$n" -lt 40 ]; do
               /dev/block/by-name/apnhlos \
               /dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos"$SLOT" \
               /dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos; do
-        [ -e "$fw" ] && mount -t vfat -o ro "$fw" /vendor/firmware_mnt 2>/dev/null && break
+        [ -e "$fw" ] && mount -t vfat -o "$FWOPTS" "$fw" /vendor/firmware_mnt 2>/dev/null && break
     done
     [ -e /vendor/firmware_mnt/image ] && break
     n=$((n + 1)); sleep 0.25

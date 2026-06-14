@@ -47,8 +47,16 @@ on fs
     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
 	
 	# Mount firmware
+    # apnhlos is mounted FIRST here, so it owns the vfat superblock - vfat has no
+    # on-disk unix perms and a second mount of the same device reuses this sb's
+    # options, so perms MUST be set right here. A bare `mount vfat` inherits init's
+    # umask -> skeymast.mbn lands 0700 root:root, and the Samsung keymint_tee HAL runs
+    # as user *system*: it then can't open the TA ("Failed to open skeymast.mbn" ->
+    # nwd_tz_open failed -> createOperation -49 SECURE_HW_COMMUNICATION_FAILED ->
+    # /data metadata decrypt fails, fail_cause M02R). Use the stock fstab.qcom options:
+    # root:system, owner/group-readable (files 0440, dirs 0550).
     mkdir /vendor/firmware_mnt
-    mount vfat /dev/block/bootdevice/by-name/apnhlos /vendor/firmware_mnt
+    mount vfat /dev/block/bootdevice/by-name/apnhlos /vendor/firmware_mnt ro uid=0,gid=1000,fmask=337,dmask=227,context=u:object_r:firmware_file:s0,shortname=lower
 
     # Wait for vendor partition to be available
     wait /dev/block/platform/soc/${ro.boot.bootdevice}/by-name/vendor
