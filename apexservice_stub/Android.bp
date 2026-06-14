@@ -1,0 +1,22 @@
+// apexservice_stub: tiny IApexService stand-in so the A16 keystore2 (run from the
+// firmware dump under TWRP) stops blocking on waitForService("apexservice") during
+// startup. See apexservice_stub.cpp for the full rationale. Pulled into the recovery
+// ramdisk via TARGET_RECOVERY_DEVICE_MODULES in BoardConfig.mk.
+cc_binary {
+    name: "apexservice_stub",
+    srcs: ["apexservice_stub.cpp"],
+    shared_libs: [
+        "libbinder",
+        "libutils",
+        "liblog",
+        "libbase",
+        "libcutils",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    // Recovery-only: builds the recovery variant and installs to the recovery
+    // ramdisk's /system/bin. Soong pulls the recovery variants of the shared_libs in.
+    recovery: true,
+}
