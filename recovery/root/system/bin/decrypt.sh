@@ -174,6 +174,21 @@ sleep 3
 # it's absent (cp_needsCheckpoint, independent of the fstab checkpoint= flag).
 start_svc decrypt-bootctl
 sleep 1
+# WARM UP the KeyMint TA before vold. The skeymast trustlet COLD-loads into TrustZone
+# on the first KeyMint call and that takes ~40s in recovery (eng build, first-time TA
+# load: keymint_swd "Tl initialization done"). keystore2's shared-secret handshake
+# triggers it. vold.mountFstab has a ~35s timeout on its key op, so without this it
+# gives up microseconds before the TA is warm - keystore2 logs "create_operation
+# Success TEE" but vold has already returned "decryptWithKeystoreKey fail" / M02R.
+# Wait (bounded) for the handshake to complete = TA loaded, then vold hits a warm TA
+# and the op returns immediately.
+echo "waiting for KeyMint TA warm-up (shared-secret handshake)..."
+w=0
+while [ "$w" -lt 90 ]; do
+    logcat -d -b all 2>/dev/null | grep -qE "computeSharedSecret: ret 0|Shared secret negotiation concluded" && break
+    w=$((w + 1)); sleep 1
+done
+echo "keymint TA warm after ~${w}s (handshake $([ "$w" -lt 90 ] && echo seen || echo TIMEOUT))"
 start_svc decrypt-vold
 sleep 4
 
@@ -189,6 +204,37 @@ echo "----- running A16 procs -----"; ps -A 2>/dev/null | grep -iE "linker64" | 
 USERDATA=$(ls /dev/block/by-name/userdata /dev/block/bootdevice/by-name/userdata \
               /dev/block/platform/soc/1d84000.ufshc/by-name/userdata 2>/dev/null | head -1)
 echo "----- decrypt: userdata=$USERDATA -----"
+# ROT SYNC (Samsung anti-tamper). vold's KeyStorage::checkRotStr compares the device's
+# CURRENT Root of Trust against the ROT saved in the key dir when /data was last
+# encrypted. Flashing a custom recovery blows the Knox sw-fuse, which flips ROT
+# integrity_flag bit 0x10 (saved 0x07 -> current 0x17), so checkRotStr fails ("ROT value
+# was invalid") -> decryptWithKeystoreKey fail -> /data won't mount, even though KeyMint
+# itself returns the key (begin ret 0; ROT is NOT enforced TA-side, only here). The ROT
+# is a vold-side gate, not key material, so syncing the saved value to current is safe
+# and lets the real decrypt proceed (verified live 2026-06-14: /data then mounts).
+# A probe mountFstab makes KeyStorage log the current ROT; parse + write it to the key
+# dir's `rot` (+ sec_backup, + a one-time .orig backup). Idempotent: once synced the
+# probe just mounts /data and we skip.
+KDIR=/metadata/vold/metadata_encryption/key
+BDIR=/metadata/sec_backup/metadata_encryption/key
+if [ -e "$KDIR/rot" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null; then
+    echo "[ROT sync: probe mountFstab to read current device ROT]"
+    lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" >/dev/null 2>&1
+    if ! grep -qE " /data " /proc/mounts 2>/dev/null; then
+        cur=$(logcat -d -b all 2>/dev/null | grep "checkRotStr current rot value" | tail -1 | sed 's/.*value : *//' | tr -dc '0-9a-fA-F')
+        if [ "${#cur}" = "32" ]; then
+            esc=$(echo "$cur" | sed 's/\(..\)/\\x\1/g')
+            [ -e "$KDIR/rot.orig" ] || cp -a "$KDIR/rot" "$KDIR/rot.orig" 2>/dev/null
+            [ -e "$BDIR/rot.orig" ] || cp -a "$BDIR/rot" "$BDIR/rot.orig" 2>/dev/null
+            printf "$esc" > "$KDIR/rot"
+            [ -d "$BDIR" ] && printf "$esc" > "$BDIR/rot"
+            echo "ROT synced to current device value: $cur"
+        else
+            echo "ROT sync: could not parse current ROT (decrypt may fail on checkRotStr)"
+        fi
+    fi
+fi
+
 # A16 vdc dropped raw commands; cryptfs mountFstab now needs 6 args:
 #   cryptfs mountFstab <blkDevice> <mountPoint> <isZoned:bool> <userDevices>
 # (verified live: the 4-arg form -> "Raw commands are no longer supported").
