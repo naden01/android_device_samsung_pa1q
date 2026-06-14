@@ -15,6 +15,17 @@ LOG=/tmp/decrypt.log
 exec >>"$LOG" 2>&1
 echo "===== decrypt start (uptime $(cat /proc/uptime 2>/dev/null)) ====="
 
+# /metadata mount: with TWRP crypto disabled (BoardConfig) TWRP no longer mounts
+# /metadata at startup, but the entire metadata-encryption key dir lives there - and so
+# does our pristine snapshot/restore. Mount it ourselves (idempotent), else every key
+# read/write below silently lands in tmpfs and the decrypt + boot-safety restore fail.
+if ! grep -qE " /metadata " /proc/mounts 2>/dev/null; then
+    MD=$(ls /dev/block/by-name/metadata /dev/block/bootdevice/by-name/metadata 2>/dev/null | head -1)
+    [ -n "$MD" ] && mount -t f2fs "$MD" /metadata 2>/dev/null
+    grep -qE " /metadata " /proc/mounts 2>/dev/null && echo "/metadata mounted ($MD)" \
+        || echo "WARN: /metadata NOT mounted - decrypt/key-restore will fail"
+fi
+
 SYS=/decrypt
 LK="$SYS/system/bin/bootstrap/linker64"
 LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
