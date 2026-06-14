@@ -82,6 +82,22 @@ mkdir -p /mnt/vendor/efs/DAK 2>/dev/null
 setprop sys.boot_completed 1
 setprop apexd.status activated
 
+# 3a. version props the A16 stack reads - set BEFORE KeyMint/vold start (KeyMint reads
+#     the OS version at init, vold reads ro.crypto at mountFstab). These are write-once
+#     ro. props, so use resetprop to force them in place. Verified live 2026-06-14.
+RP=/system/bin/resetprop
+# anti-rollback: the /data metadata key was created under Android 16 (key os_version
+# 160000). KeyMint's TA refuses a key NEWER than the reported OS - the A12 base reports
+# 120000 -> swd_key_upgrade returns -38 ("key newer than system") and read_key fails.
+# ro.build.version.release feeds os_version; force 16 so 160000 == 160000.
+"$RP" ro.build.version.release 16 2>/dev/null || setprop ro.build.version.release 16
+# legacy-mode: vold rejects the v2 wrapped-key options ("metadata_encryption options
+# cannot be set in legacy mode") unless the dm-default-key options format is v2 and DUN
+# is on. Unset in recovery -> vold falls back to legacy(v1) and bails (length 0).
+"$RP" ro.crypto.dm_default_key.options_format.version 2 2>/dev/null || setprop ro.crypto.dm_default_key.options_format.version 2
+"$RP" ro.crypto.set_dun true 2>/dev/null || setprop ro.crypto.set_dun true
+echo "props: release=$(getprop ro.build.version.release) dm_fmt=$(getprop ro.crypto.dm_default_key.options_format.version) set_dun=$(getprop ro.crypto.set_dun)"
+
 # 4. hand /dev/binder to the A16 servicemanager: stop the A12 one (+ A12 keystore2).
 #    ctl.stop leaves them stopped (only crashes auto-restart), so the A16 sm can
 #    claim the context-manager slot.
@@ -95,6 +111,12 @@ start_svc() { setprop ctl.start "$1"; echo "ctl.start $1"; }
 
 start_svc decrypt-servicemanager
 sleep 2
+# apexservice stub - MUST be up before keystore2, which blocks on
+# waitForService("apexservice") during startup (real apexd can't run in recovery).
+# Registers the name + answers getActivePackages() empty so keystore2 finishes init
+# and registers IKeystoreService. Verified live 2026-06-14: that wait was the wall.
+start_svc decrypt-apexservice
+sleep 1
 start_svc decrypt-qseecomd
 n=0; while [ "$n" -lt 24 ]; do
     logcat -d -s QSEECOMD 2>/dev/null | grep -q "QSEECOM DAEMON RUNNING" && { echo "qseecomd: TEE up"; break; }

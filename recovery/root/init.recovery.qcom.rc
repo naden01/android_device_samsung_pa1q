@@ -144,6 +144,19 @@ service decrypt-servicemanager /system/bin/hal_run.sh /decrypt/system/bin/servic
     seclabel u:r:recovery:s0
     disabled
 
+# apexservice stub - keystore2 blocks on waitForService("apexservice") during startup
+# (calls IApexService.getActivePackages()); the real apexd can't run in recovery (it
+# crashes on apex activation). This tiny native service (built from device tree, NOT
+# the dump) registers the name and returns an empty package list so keystore2 finishes
+# startup and registers IKeystoreService. Plain A12 recovery binary - run directly, NOT
+# via hal_run.sh. Verified live 2026-06-14: this wait blocked the whole decrypt chain.
+service decrypt-apexservice /system/bin/apexservice_stub
+    class core
+    user root
+    group system
+    seclabel u:r:recovery:s0
+    disabled
+
 # qseecomd - stock notify-topology socket + root/drmrpc (TEE daemon KeyMint needs).
 service decrypt-qseecomd /system/bin/hal_run.sh /vendor/bin/qseecomd
     socket notify-topology stream 660 system drmrpc
