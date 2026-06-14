@@ -98,7 +98,21 @@ if [ ! -e /vendor/etc/vintf/manifest.xml ]; then
     rm -rf /tmp/vintf_src; mkdir -p /tmp/vintf_src
     cp -a /vendor/etc/vintf/. /tmp/vintf_src/ 2>/dev/null
     printf '%s\n' '<manifest version="8.0" type="device" />' > /tmp/vintf_src/manifest.xml
-    mount --bind /tmp/vintf_src /vendor/etc/vintf && echo "vintf overlay bound"
+    # Strip the StrongBox KeyMint declaration. StrongBox is a discrete secure element
+    # (Samsung SPU) that is NOT powered/available in recovery, so IKeyMintDevice/strongbox
+    # never registers. While it stays DECLARED in VINTF, keystore2 at startup iterates it,
+    # fails to get the device (NAME_NOT_FOUND), and treats that as FATAL: "Terminating due
+    # to KeyMint not accepting module info, blocking boot" -> SIGABRT crash-loop ->
+    # vold.mountFstab wedges forever. Undeclaring it makes keystore2 skip StrongBox (as on
+    # TEE-only devices). The metadata key is TEE (TRUSTED_ENVIRONMENT), which works - so
+    # StrongBox is not needed for the decrypt, and it cannot work in recovery anyway.
+    rm -f /tmp/vintf_src/manifest/strongbox_qc_km_v300_manifest.xml
+    for f in /tmp/vintf_src/manifest/*.xml; do
+        [ -e "$f" ] || continue
+        grep -q '<instance>strongbox</instance>' "$f" 2>/dev/null \
+            && grep -qi keymint "$f" 2>/dev/null && rm -f "$f"
+    done
+    mount --bind /tmp/vintf_src /vendor/etc/vintf && echo "vintf overlay bound (strongbox stripped)"
 fi
 
 # 3. keystore2 prereqs: DB dir, and it blocks/aborts without boot_completed/apexd
