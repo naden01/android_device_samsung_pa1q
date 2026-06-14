@@ -2,22 +2,23 @@
 // firmware dump under TWRP) stops blocking on waitForService("apexservice") during
 // startup. See apexservice_stub.cpp for the full rationale.
 //
-// Built as a NORMAL (system) cc_binary, NOT recovery: true - the TWRP-12.1 tree has
-// no recovery variant of libbinder (recovery only carries HIDL libhwbinder), so a
-// recovery variant fails with "missing dependencies: libbinder{image:recovery}". The
-// system variant links the system libbinder fine; TWRP's relink mechanism
-// (TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES in BoardConfig.mk) then copies the
-// binary + its .so deps into the recovery ramdisk. PRODUCT_PACKAGES (device.mk) builds
-// + installs the system variant to $(TARGET_OUT_EXECUTABLES) for relink to pick up.
+// Linked against libbinder_ndk (the NDK binder ABI is frozen across API levels), NOT
+// the C++ libbinder - an A12-marshalled addService is rejected EX_BAD_PARCELABLE by
+// the A16 servicemanager. At runtime the stub is launched via hal_run.sh (bootstrap
+// linker + the A16 libbinder_ndk.so from the dump), so the A16 library does the
+// version-correct marshalling.
+//
+// Built as a NORMAL (system) cc_binary, NOT recovery: true - the TWRP-12.1 tree has no
+// recovery variant of these libs. The system variant links fine; TWRP's relink
+// mechanism (TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES in BoardConfig.mk) copies the
+// binary into the recovery ramdisk. PRODUCT_PACKAGES (device.mk) builds + installs the
+// system variant to $(TARGET_OUT_EXECUTABLES) for relink to pick up.
 cc_binary {
     name: "apexservice_stub",
     srcs: ["apexservice_stub.cpp"],
     shared_libs: [
-        "libbinder",
-        "libutils",
+        "libbinder_ndk",
         "liblog",
-        "libbase",
-        "libcutils",
     ],
     cflags: [
         "-Wall",

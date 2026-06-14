@@ -55,13 +55,26 @@ fi
 # /vendor/firmware_mnt/image/, per firmware_class.path) becomes unreachable and
 # KeyMint fails to open the TEE (shared-secret ret -49). Verified live: re-mounting
 # it makes the trustlet load and shared-secret succeed.
+# The apnhlos by-name node can appear a beat AFTER we run (auto-start fires at ~8s
+# uptime, before ueventd finishes creating it) and it is slot-suffixed
+# (apnhlos_a/_b) - so wait briefly (bounded) and probe the real, slot-correct paths.
+# A miss here = trustlet unreachable = KeyMint can't open the TEE = mountFstab wedges.
+SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null)
 mkdir -p /vendor/firmware_mnt 2>/dev/null
-if [ ! -e /vendor/firmware_mnt/image ]; then
-    for fw in /dev/block/bootdevice/by-name/apnhlos /dev/block/by-name/apnhlos \
+n=0
+while [ ! -e /vendor/firmware_mnt/image ] && [ "$n" -lt 40 ]; do
+    for fw in /dev/block/bootdevice/by-name/apnhlos"$SLOT" \
+              /dev/block/bootdevice/by-name/apnhlos \
+              /dev/block/by-name/apnhlos"$SLOT" \
+              /dev/block/by-name/apnhlos \
+              /dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos"$SLOT" \
               /dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos; do
         [ -e "$fw" ] && mount -t vfat -o ro "$fw" /vendor/firmware_mnt 2>/dev/null && break
     done
-fi
+    [ -e /vendor/firmware_mnt/image ] && break
+    n=$((n + 1)); sleep 0.25
+done
+echo "apnhlos wait ~$((n * 250))ms slot=${SLOT:-none}"
 echo "linker=$([ -e "$LK" ] && echo ok || echo MISS) vendor=$([ -e /vendor/bin/qseecomd ] && echo ok || echo MISS) trustlet=$([ -e /vendor/firmware_mnt/image/skeymast.mbn ] && echo ok || echo MISS)"
 
 # 2. VINTF overlay: the A16 servicemanager returns "NULL VINTF MANIFEST" without a
