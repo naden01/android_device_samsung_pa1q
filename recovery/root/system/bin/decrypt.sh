@@ -217,6 +217,20 @@ echo "----- decrypt: userdata=$USERDATA -----"
 # probe just mounts /data and we skip.
 KDIR=/metadata/vold/metadata_encryption/key
 BDIR=/metadata/sec_backup/metadata_encryption/key
+# PRISTINE SNAPSHOT (boot-safety). Decrypting mutates the metadata key dir: vold's
+# mountFstab makes KeyMint upgrade keymaster_key_blob (and we rewrite rot/integrity).
+# Real Android cannot use those mutated bytes on its next boot -> bootloop. So before we
+# touch ANYTHING, snapshot the whole key dir as it was last written by real Android. The
+# guard captures it ONCE (the first decrypt after a fresh setup, i.e. the bytes Android
+# needs); it is regenerated automatically after a Format Data (which wipes /metadata).
+PSNAP=/metadata/_pristine_metakey
+if [ ! -e "$PSNAP/.captured" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null; then
+    rm -rf "$PSNAP" 2>/dev/null; mkdir -p "$PSNAP"
+    cp -a "$KDIR" "$PSNAP/primary" 2>/dev/null
+    cp -a "$BDIR" "$PSNAP/backup"  2>/dev/null
+    touch "$PSNAP/.captured"
+    echo "[pristine key snapshot captured -> $PSNAP]"
+fi
 if [ -e "$KDIR/rot" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "[ROT sync: probe mountFstab to read current device ROT]"
     lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" >/dev/null 2>&1
@@ -245,5 +259,26 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "SUCCESS: /data mounted"; grep -E " /data " /proc/mounts
 else
     echo "/data not mounted - check decrypt.log for the vold mountFstab error"
+fi
+
+# CRITICAL boot-safety - ALWAYS restore the pristine metadata key before exit, whether or
+# not the mount succeeded. By this point the dir is mutated regardless: the ROT-sync probe
+# wrote the TWRP-context ROT (0x17) and vold's mountFstab made KeyMint upgrade
+# keymaster_key_blob (+ rewrite sec_backup/integrity). Real Android at boot computes 0x07
+# and cannot use the upgraded blob -> key-unwrap fails -> /data won't mount -> BOOTLOOP ->
+# "Format Data". If /data mounted here, dm-default-key is already set up in-kernel and vold
+# does not re-read these files until the next mount, so restoring them does NOT disturb the
+# live mount. Android then boots on the bytes it wrote and does its own valid upgrade.
+if [ -e "$PSNAP/.captured" ]; then
+    for f in keymaster_key_blob rot secdiscardable encrypted_key version encrypt_done; do
+        [ -e "$PSNAP/primary/$f" ] && cp -a "$PSNAP/primary/$f" "$KDIR/$f" 2>/dev/null
+    done
+    for f in keymaster_key_blob rot integrity secdiscardable encrypted_key version encrypt_done; do
+        [ -e "$PSNAP/backup/$f" ] && cp -a "$PSNAP/backup/$f" "$BDIR/$f" 2>/dev/null
+    done
+    rm -f "$KDIR/rot.orig" "$BDIR/rot.orig" 2>/dev/null   # not part of the pristine dir
+    echo "pristine metadata key restored (rot=$(xxd -p "$KDIR/rot" 2>/dev/null | tr -d '\n')) -> Android boot safe"
+else
+    echo "WARN: no pristine snapshot captured - cannot guarantee a clean Android boot"
 fi
 echo "===== decrypt done ====="
