@@ -115,12 +115,15 @@ on boot
     wait /sys/class/usb_notify/usb_control/usb_sl 5
     write /sys/class/usb_notify/usb_control/usb_sl SUNNY_WORK_MODE
 
-    # NOTE: decrypt is NOT auto-started anymore. It is a DESTRUCTIVE operation for the
-    # /data metadata key: vold's mountFstab makes KeyMint upgrade keymaster_key_blob and
-    # we rewrite `rot`, which real Android cannot use on its next boot -> bootloop ->
-    # "Format Data". Auto-running it on every recovery boot silently corrupted the key.
-    # decrypt.sh now snapshots + restores the pristine key dir, but it must only run when
-    # the user explicitly asks for it:  setprop twrp.decrypt.run 1  (via adb / terminal).
+    # AUTO-START the A16 decrypt at boot (WIP32). This is needed again now that TWRP
+    # crypto is back on (BoardConfig): TWRP's startup FBE path does waitForService(KeyMint)
+    # and would HANG on the logo (A12 keystore2 SIGSEGV-loops, KeyMint never registers) -
+    # bringing our A16 stack up early makes that wait COMPLETE. It also mounts the metadata
+    # layer + speeds up the whole decrypt. SAFE again: decrypt.sh is non-destructive
+    # (snapshots + restores the pristine metadata key), so Android still boots afterwards.
+    # decrypt.sh waits for TWRP to map the super partitions + settles before swapping in
+    # the A16 servicemanager, so it does not race TWRP's own startup.
+    setprop twrp.decrypt.run 1
 
 # A16 decrypt: run the WHOLE Android-16 security stack from the dump, one version
 # (the A12 wall was: A16 KeyMint can't register in the A12 servicemanager). The stack
