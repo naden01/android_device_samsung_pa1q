@@ -1,7 +1,14 @@
 // apexservice_stub: tiny IApexService stand-in so the A16 keystore2 (run from the
 // firmware dump under TWRP) stops blocking on waitForService("apexservice") during
-// startup. See apexservice_stub.cpp for the full rationale. Pulled into the recovery
-// ramdisk via TARGET_RECOVERY_DEVICE_MODULES in BoardConfig.mk.
+// startup. See apexservice_stub.cpp for the full rationale.
+//
+// Built as a NORMAL (system) cc_binary, NOT recovery: true - the TWRP-12.1 tree has
+// no recovery variant of libbinder (recovery only carries HIDL libhwbinder), so a
+// recovery variant fails with "missing dependencies: libbinder{image:recovery}". The
+// system variant links the system libbinder fine; TWRP's relink mechanism
+// (TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES in BoardConfig.mk) then copies the
+// binary + its .so deps into the recovery ramdisk. PRODUCT_PACKAGES (device.mk) builds
+// + installs the system variant to $(TARGET_OUT_EXECUTABLES) for relink to pick up.
 cc_binary {
     name: "apexservice_stub",
     srcs: ["apexservice_stub.cpp"],
@@ -16,7 +23,4 @@ cc_binary {
         "-Wall",
         "-Werror",
     ],
-    // Recovery-only: builds the recovery variant and installs to the recovery
-    // ramdisk's /system/bin. Soong pulls the recovery variants of the shared_libs in.
-    recovery: true,
 }
