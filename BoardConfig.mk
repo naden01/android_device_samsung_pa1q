@@ -106,33 +106,32 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# Crypto RE-ENABLED (path A). We now have a reliable way to bring KeyMint up
-# (km-bringup, auto-started at boot), so TWRP's built-in metadata decrypt is back:
-# fscrypt_mount_metadata_encrypted() does waitForService(KeyMint), which is now the
-# INTENDED behaviour (a bounded wait that completes once km-bringup registers
-# KeyMint) instead of an indefinite hang. KeyMint unwraps the keymaster_key_blob in
-# /metadata/vold/metadata_encryption and TWRP mounts the decrypted /data.
+# CRYPTO FULLY DISABLED in TWRP. This device's /data is A16 FBE + metadata encryption
+# with HW-wrapped keys that TWRP's built-in (A12-base) crypto CANNOT handle. With these
+# flags on, TWRP's FBE path runs at startup and does waitForService(KeyMint); the A12
+# keystore2 SIGSEGV-loops and KeyMint never registers, so TWRP's `recovery` process
+# blocks in futex_wait -> HANG ON THE LOGO (confirmed live: recovery.log stops at
+# "Using additional fstab for decryption", recovery pid in futex_wait, init spamming
+# "Could not find IKeystoreService"). Earlier WIPs hid this by auto-starting the A16
+# stack at boot to satisfy TWRP's wait - but that auto-decrypt rewrote the /data
+# metadata key (rot + KeyMint keyUpgrade of keymaster_key_blob) on EVERY boot, which
+# real Android then cannot use -> bootloop -> "Format Data".
 #
-# TW_FORCE_KEYMASTER_VER: TWRP's keymaster-version probe reads the vendor VINTF
-# manifest for HIDL 'android.hardware.keymaster' and finds nothing (this device is
-# AIDL KeyMint) -> "Using keymaster version '' for decryption". Forcing the version
-# (gta9p trick) makes the decrypt use KeyMint instead of bailing on an empty value.
+# The decrypt is now 100% self-contained in decrypt.sh: it runs the WHOLE A16 security
+# stack + vold/vdc FROM THE FIRMWARE DUMP (/decrypt/...), reads the dump's own fstab for
+# the /data crypto options, and mounts /data itself. It uses NO TWRP crypto module, so
+# turning these OFF does not affect it. The only A12 services it touches are the base
+# servicemanager (always present, not crypto-gated) and keystore2 (it ctl.stops it);
+# with crypto off that stop is a harmless no-op and /dev/binder is free for the A16 sm.
+# Net result: TWRP boots straight to its GUI (no startup decrypt, no hang) and /data is
+# decrypted only on explicit  setprop twrp.decrypt.run 1  (decrypt.sh is non-destructive:
+# it snapshots + restores the pristine metadata key so Android still boots afterwards).
 #
-# Risk acknowledged: if km-bringup fails to register KeyMint, the startup decrypt
-# can hang on the logo - but adbd is up from `on fs` so /tmp/*.log + logcat are
-# pullable to debug, and km-bringup is now proven to bring qseecomd+KeyMint up.
-#
-# IMPORTANT: -D compile flags -> a CLEAN recovery build is required or the stale
-# partitionmanager.o is reused and the flags silently have no effect (this bit us).
-# TW_INCLUDE_FBE_METADATA_DECRYPT is OFF: TWRP must NOT run its own metadata decrypt
-# at startup. With it on, TWRP's Decrypt_Data() does waitForService(KeyMint) at boot
-# and HANGS on the logo (KeyMint is no longer auto-started - the A16 stack is
-# on-demand via a16_decrypt.sh, which also drives the actual decrypt through A16
-# vold). Keep CRYPTO/_FBE on so the A12 keystore2/servicemanager modules stay in the
-# image (a16_decrypt.sh ctl.stops them before swapping in the A16 ones).
-TW_INCLUDE_CRYPTO := true
-TW_INCLUDE_CRYPTO_FBE := true
-BOARD_USES_QCOM_FBE_DECRYPTION := true
+# IMPORTANT: these are -D compile flags -> a CLEAN recovery build is REQUIRED, or a
+# stale partitionmanager.o is reused and the change silently has no effect.
+TW_INCLUDE_CRYPTO := false
+TW_INCLUDE_CRYPTO_FBE := false
+BOARD_USES_QCOM_FBE_DECRYPTION := false
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
 
