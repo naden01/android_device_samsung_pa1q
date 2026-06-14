@@ -139,9 +139,11 @@ BOARD_USES_METADATA_PARTITION := true
 # Custom recovery binary: apexservice stub for the A16-stack /data decrypt. The A16
 # keystore2 (run from the firmware dump by decrypt.sh) blocks during startup on
 # waitForService("apexservice") - apexd can't run in recovery - so this tiny native
-# service answers getActivePackages() empty and lets keystore2 finish. Built from the
-# device tree (apexservice_stub/) by Soong and installed into the recovery ramdisk.
-TARGET_RECOVERY_DEVICE_MODULES += apexservice_stub
+# service answers getActivePackages() empty and lets keystore2 finish.
+# Built as a SYSTEM binary (apexservice_stub/, via PRODUCT_PACKAGES in device.mk):
+# this tree has no recovery variant of libbinder, so relink the system binary + its
+# .so deps into the recovery ramdisk instead of forcing a recovery build.
+TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES += $(TARGET_OUT_EXECUTABLES)/apexservice_stub
 
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"

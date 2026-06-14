@@ -32,6 +32,12 @@ PRODUCT_PACKAGES += \
     android.hardware.fastboot@1.1-impl-mock \
     fastbootd
 
+# apexservice stub for the A16-stack /data decrypt (built as a system binary; relinked
+# into the recovery ramdisk via TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES in
+# BoardConfig.mk). See apexservice_stub/ and recovery/root/system/bin/decrypt.sh.
+PRODUCT_PACKAGES += \
+    apexservice_stub
+
 # Partitions
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
