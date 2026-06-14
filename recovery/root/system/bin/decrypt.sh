@@ -169,11 +169,16 @@ n=0; while [ "$n" -lt 24 ]; do
 done
 start_svc decrypt-keystore2
 sleep 3
+# bootctl HAL must be registered BEFORE vold: mountFstab unconditionally does
+# waitForService("android.hardware.boot.IBootControl/default") and blocks forever if
+# it's absent (cp_needsCheckpoint, independent of the fstab checkpoint= flag).
+start_svc decrypt-bootctl
+sleep 1
 start_svc decrypt-vold
 sleep 4
 
 echo "----- service states -----"
-for s in decrypt-servicemanager decrypt-qseecomd decrypt-keymint decrypt-keystore2 decrypt-vold; do
+for s in decrypt-servicemanager decrypt-qseecomd decrypt-keymint decrypt-keystore2 decrypt-bootctl decrypt-vold; do
     echo "  init.svc.$s = $(getprop init.svc.$s)"
 done
 echo "----- running A16 procs -----"; ps -A 2>/dev/null | grep -iE "linker64" | grep -v grep
