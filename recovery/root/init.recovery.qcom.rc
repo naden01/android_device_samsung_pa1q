@@ -193,6 +193,21 @@ service decrypt-keystore2 /system/bin/hal_run.sh /decrypt/system/bin/keystore2 /
     seclabel u:r:recovery:s0
     disabled
 
+# bootctl - the A16 IBootControl HAL from the dump. vold.mountFstab unconditionally
+# (via cp_needsCheckpoint, NOT the fstab checkpoint= flag) calls
+# waitForService("android.hardware.boot.IBootControl/default") and blocks forever if
+# it's absent - servicemanager can only try a non-existent .recovery variant. Stock
+# binary is /vendor/bin/hw/android.hardware.boot-service.qti (AIDL service over the
+# libboot_control_qti backend in /vendor/lib64; reads the A/B control block from /misc;
+# no TEE/SPU needed). Verified live: launched via the bootstrap linker it registers
+# IBootControl/default and vold passes the wait. Must be up before decrypt-vold.
+service decrypt-bootctl /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.boot-service.qti
+    class core
+    user root
+    group root
+    seclabel u:r:recovery:s0
+    disabled
+
 # vold - THE decrypt driver. init creates its sockets and passes the OPEN fds. The
 # `knoxnative` socket is the one whose absence killed a bare vold launch
 # ("fail to get knoxnative socket -> Critical error occured. close.").
