@@ -1,19 +1,17 @@
 // de_keyinstall: installs the systemwide FBE (DE) key into the kernel keyring under
 // TWRP, by unwrapping /data/unencrypted/key via the A16 KeyMint (KeyStorage AES-256-GCM
-// decrypt) and FS_IOC_ADD_ENCRYPTION_KEY with the hardware-wrapped flag. See
-// de_keyinstall.cpp for the full rationale. Next FBE domino after the metadata mount.
+// decrypt) and FS_IOC_ADD_ENCRYPTION_KEY with the hardware-wrapped flag. Next FBE domino
+// after the metadata mount. See de_keyinstall.cpp for the full rationale.
 //
-// KeyMint AIDL client via the TYPED V1 NDK stubs (static-linked: the wire format of
-// KeyParameter unions / BeginResult / IKeyMintOperation is too easy to get wrong by
-// hand). Static-linking the AIDL means only libbinder_ndk + libcrypto are needed at
-// runtime - both present in the firmware dump - so it runs via hal_run.sh / the A16
-// bootstrap linker (this A12-built binary must reach the A16 KeyMint over the A16
-// servicemanager). A V1 client is wire-compatible with the device's V3 KeyMint for the
-// stable methods used (begin/update/finish/upgradeKey/convertStorageKeyToEphemeral).
-//
-// Built as a NORMAL (system) cc_binary - the TWRP-12.1 tree has no recovery variant of
-// these libs; TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES (BoardConfig) relinks it + its
-// .so deps into the recovery ramdisk. Same model as apexservice_stub.
+// Talks to the A16 KeyMint with RAW binder transactions over libbinder_ndk - NOT the
+// typed keymint AIDL stubs (the TWRP-12.1 build tree has no android.hardware.security.-
+// keymint-V1-ndk, and a prebuilt .so can't supply the headers needed to COMPILE typed
+// calls). The on-the-wire bytes are identical to the generated stubs. Zero extra deps:
+// libbinder_ndk (frozen NDK binder ABI - this A12-built client must reach the A16 KeyMint
+// over the A16 servicemanager), libcrypto (SHA512 for the appId), liblog - all present in
+// the dump at runtime. Run via hal_run.sh / the A16 bootstrap linker. Same build/run model
+// as apexservice_stub: a NORMAL (system) cc_binary relinked into the recovery ramdisk via
+// TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES (BoardConfig); PRODUCT_PACKAGES in device.mk.
 cc_binary {
     name: "de_keyinstall",
     srcs: ["de_keyinstall.cpp"],
@@ -21,10 +19,6 @@ cc_binary {
         "libbinder_ndk",
         "liblog",
         "libcrypto",
-    ],
-    static_libs: [
-        "android.hardware.security.keymint-V1-ndk",
-        "android.hardware.security.secureclock-V1-ndk",
     ],
     cflags: [
         "-Wall",
