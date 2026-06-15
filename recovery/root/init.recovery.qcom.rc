@@ -226,6 +226,22 @@ service decrypt-vold /system/bin/hal_run.sh /decrypt/system/bin/vold --blkid_con
     seclabel u:r:recovery:s0
     disabled
 
+# hermesd - Samsung eSE (k250a) Weaver HAL backend, for the user-0 CE layer. The CE key's
+# synthetic password (LSS) is gated by Weaver slot 0; hermesd serves IWeaver/default from
+# the eSE (/dev/k250a) + a TEE hwvault TA. Confirmed live in recovery: the eSE powers on,
+# the TEE TA answers (HV_TZ_CMD_WEAVER_GET_CONFIG ret 0), the slot reads with no throttle,
+# IWeaver registers. It MUST have its stock `hermes_secnvm` control socket or the secnvm
+# service thread exits and stops the whole daemon ("server socket fail -1 -> stop the
+# daemon"). Run as root (proven live - opens /dev/k250a, full caps) through hal_run.sh.
+# Started by decrypt.sh after /data is mounted (its gatekeeper dir lives on /data) + TEE up.
+service decrypt-hermes /system/bin/hal_run.sh /vendor/bin/hermesd /data/vendor/gatekeeper
+    socket hermes_secnvm stream 660 system system
+    class core
+    user root
+    group root system 5678
+    seclabel u:r:recovery:s0
+    disabled
+
 
    
 
