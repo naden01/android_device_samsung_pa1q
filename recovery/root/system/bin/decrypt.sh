@@ -284,7 +284,16 @@ fi
 if grep -qE " /data " /proc/mounts 2>/dev/null \
    && [ -e /data/unencrypted/key/keymaster_key_blob ] \
    && [ -x /system/bin/de_keyinstall ]; then
-    echo "----- FBE: install systemwide DE key -----"
+    # Bring up Weaver (Samsung eSE via hermesd) for the CE layer. The user-0 CE key's
+    # synthetic password is gated by Weaver slot 0; hermesd serves IWeaver from the eSE
+    # (k250a) + TEE hwvault TA - confirmed working in recovery. It needs /data mounted (its
+    # gatekeeper dir) + the TEE up (both true here) + its hermes_secnvm socket (from the rc).
+    mkdir -p /data/vendor/gatekeeper /mnt/vendor/efs/hermes 2>/dev/null
+    start_svc decrypt-hermes
+    sleep 3
+    echo "weaver: init.svc.decrypt-hermes=$(getprop init.svc.decrypt-hermes) (running => IWeaver up)"
+
+    echo "----- FBE: install DE keys (systemwide + user-0; CE once de_keyinstall supports it) -----"
     lrun /system/bin/de_keyinstall 2>&1
     echo "fscrypt keyring now: $(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
 else
