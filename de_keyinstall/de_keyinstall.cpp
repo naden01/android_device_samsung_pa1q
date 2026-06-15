@@ -58,6 +58,7 @@
 #include <android/binder_process.h>
 #include <android/binder_status.h>
 #include <android/log.h>
+#include <openssl/evp.h>
 #include <openssl/sha.h>
 
 #include <fcntl.h>
@@ -184,6 +185,38 @@ std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
     return true;
 }
 
+// Empty-LSKF stretched credential (A16): "default-password" zero-padded to 32B (no scrypt).
+std::vector<uint8_t> emptyStretchedLskf() {
+    std::vector<uint8_t> s(32, 0);
+    const char* dp = "default-password";
+    memcpy(s.data(), dp, strlen(dp));
+    return s;
+}
+
+// Software AES-256-GCM decrypt (libcrypto) of [ct||16B tag] with a 32B key + 12B IV.
+// Used for the SP blob INNER layer (SyntheticPasswordCrypto.decrypt - not keystore-backed).
+bool swGcmDecrypt(const std::vector<uint8_t>& key32, const std::vector<uint8_t>& iv12,
+                  const std::vector<uint8_t>& ctAndTag, std::vector<uint8_t>* out) {
+    if (key32.size() != 32 || iv12.size() != 12 || ctAndTag.size() < 16) return false;
+    size_t ctLen = ctAndTag.size() - 16;
+    const uint8_t* tag = ctAndTag.data() + ctLen;
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (ctx == nullptr) return false;
+    out->assign(ctLen, 0);
+    int outl = 0, finl = 0;
+    bool ok = EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1 &&
+              EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) == 1 &&
+              EVP_DecryptInit_ex(ctx, nullptr, nullptr, key32.data(), iv12.data()) == 1 &&
+              EVP_DecryptUpdate(ctx, out->data(), &outl, ctAndTag.data(),
+                                static_cast<int>(ctLen)) == 1 &&
+              EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
+                                  const_cast<uint8_t*>(tag)) == 1 &&
+              EVP_DecryptFinal_ex(ctx, out->data() + outl, &finl) == 1;
+    EVP_CIPHER_CTX_free(ctx);
+    if (ok) out->resize(outl + finl);
+    return ok;
+}
+
 // Client-side AIBinder_Class stubs for the hand-marshalled IWeaver proxy (we never receive
 // inbound calls). Named functions (not lambdas) so the onTransact return type is exactly
 // binder_status_t for the function-pointer typedef.
@@ -308,11 +341,15 @@ void logStatus(const char* what, const ::ndk::ScopedAStatus& st) {
 }
 
 // vold KeyStorage::decryptWithKeystoreKey: AES-256-GCM decrypt encrypted_key with the KEK.
-bool unwrapStorageKey(const std::shared_ptr<IKeyMintDevice>& km, std::vector<uint8_t> kek,
-                      const std::vector<uint8_t>& encryptedKey,
-                      const std::vector<uint8_t>& appId, std::vector<uint8_t>* out) {
+// KeyMint AES-256-GCM decrypt of a vold-format blob [12B nonce][ct+16B tag] using a KeyMint
+// keyblob (the KEK for DE keys, or the keystore2 SP key for the spblob outer layer). appId
+// optional: pass the APPLICATION_ID for vold KeyStorage keys (DE), nullptr for the SP key
+// (NO_AUTH_REQUIRED, no appid binding). In-memory upgradeKey on KEY_REQUIRES_UPGRADE.
+bool kmGcmDecrypt(const std::shared_ptr<IKeyMintDevice>& km, std::vector<uint8_t> keyblob,
+                  const std::vector<uint8_t>& encryptedKey, const std::vector<uint8_t>* appId,
+                  std::vector<uint8_t>* out) {
     if (static_cast<int>(encryptedKey.size()) <= kGcmNonceLen + 16) {
-        LINE("  encrypted_key too small (%zuB)", encryptedKey.size());
+        LINE("  gcm blob too small (%zuB)", encryptedKey.size());
         return false;
     }
     std::vector<uint8_t> nonce(encryptedKey.begin(), encryptedKey.begin() + kGcmNonceLen);
@@ -321,32 +358,32 @@ bool unwrapStorageKey(const std::shared_ptr<IKeyMintDevice>& km, std::vector<uin
     std::vector<KeyParameter> params;
     params.push_back(kpEnum(Tag::BLOCK_MODE,
                             KeyParameterValue::make<KeyParameterValue::blockMode>(BlockMode::GCM)));
-    // vold's GcmModeMacLen sets PADDING=NONE alongside GCM+MAC_LENGTH; omitting it makes
-    // KeyMint reject begin with UNSUPPORTED_PADDING_MODE(-10).
     params.push_back(kpEnum(Tag::PADDING,
                             KeyParameterValue::make<KeyParameterValue::paddingMode>(PaddingMode::NONE)));
     params.push_back(kpEnum(Tag::MAC_LENGTH,
                             KeyParameterValue::make<KeyParameterValue::integer>(128)));
     params.push_back(kpEnum(Tag::NONCE,
                             KeyParameterValue::make<KeyParameterValue::blob>(nonce)));
-    params.push_back(kpEnum(Tag::APPLICATION_ID,
-                            KeyParameterValue::make<KeyParameterValue::blob>(appId)));
+    if (appId)
+        params.push_back(kpEnum(Tag::APPLICATION_ID,
+                                KeyParameterValue::make<KeyParameterValue::blob>(*appId)));
 
     BeginResult begun;
-    auto st = km->begin(KeyPurpose::DECRYPT, kek, params, std::nullopt, &begun);
+    auto st = km->begin(KeyPurpose::DECRYPT, keyblob, params, std::nullopt, &begun);
     if (st.getServiceSpecificError() == -62 /*KEY_REQUIRES_UPGRADE*/) {
-        LINE("  begin -> KEY_REQUIRES_UPGRADE; upgrading KEK in-memory (not persisted)");
+        LINE("  begin -> KEY_REQUIRES_UPGRADE; upgrading keyblob in-memory (not persisted)");
         std::vector<uint8_t> upgraded;
         std::vector<KeyParameter> upParams;
-        upParams.push_back(kpEnum(Tag::APPLICATION_ID,
-                                  KeyParameterValue::make<KeyParameterValue::blob>(appId)));
-        auto ust = km->upgradeKey(kek, upParams, &upgraded);
+        if (appId)
+            upParams.push_back(kpEnum(Tag::APPLICATION_ID,
+                                      KeyParameterValue::make<KeyParameterValue::blob>(*appId)));
+        auto ust = km->upgradeKey(keyblob, upParams, &upgraded);
         if (!ust.isOk()) {
             logStatus("upgradeKey", ust);
             return false;
         }
-        kek = std::move(upgraded);
-        st = km->begin(KeyPurpose::DECRYPT, kek, params, std::nullopt, &begun);
+        keyblob = std::move(upgraded);
+        st = km->begin(KeyPurpose::DECRYPT, keyblob, params, std::nullopt, &begun);
     }
     if (!st.isOk() || begun.operation == nullptr) {
         logStatus("begin(DECRYPT)", st);
@@ -435,7 +472,7 @@ bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string&
     }
     std::vector<uint8_t> appId = secdiscardableAppId(sec);
     std::vector<uint8_t> storageKey;
-    if (!unwrapStorageKey(km, kek, encKey, appId, &storageKey)) return false;
+    if (!kmGcmDecrypt(km, kek, encKey, &appId, &storageKey)) return false;
     LINE("  storage key unwrapped: %zuB", storageKey.size());
     std::vector<uint8_t> ephemeral;
     if (!toEphemeral(km, storageKey, &ephemeral)) return false;
@@ -447,6 +484,60 @@ bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string&
         std::string want = hex(expectedRef->data(), expectedRef->size());
         LINE("  id %s ref(%s)", gotId == want ? "==" : "!=", want.c_str());
     }
+    return true;
+}
+
+// CE stage 2: unwrap the synthetic password from the LSKF-based weaver protector.
+//   protectorSecret = stretchedLskf(32) ‖ personalizedHash("weaver-pwd", weaverValue)(64)
+//   spblob.mContent = spblob[2:]  (skip version+protectorType bytes)
+//   OUTER: KeyMint AES-256-GCM decrypt(mContent) with the keystore2 SP key  -> intermediate
+//   INNER: software AES-256-GCM decrypt(intermediate) with
+//          key = personalizedHash("application-id", protectorSecret)[:32]  -> the SP
+// (Prototype: the keystore2 SP keyblob is read from /tmp/sp_keyblob.bin and the spblob path /
+//  protector handle are hardcoded for this device; will be made self-contained later.)
+bool unwrapSyntheticPassword(const std::shared_ptr<IKeyMintDevice>& km,
+                             const std::vector<uint8_t>& weaverValue, std::vector<uint8_t>* sp) {
+    std::vector<uint8_t> spKeyBlob;
+    if (!readFile("/tmp/sp_keyblob.bin", &spKeyBlob) || spKeyBlob.empty()) {
+        LINE("  SP keystore keyblob missing (/tmp/sp_keyblob.bin)");
+        return false;
+    }
+    std::vector<uint8_t> spblob;
+    if (!readFile("/data/system_de/0/spblob/3be8a78d9bbfa348.spblob", &spblob) ||
+        spblob.size() < 3) {
+        LINE("  spblob missing/short");
+        return false;
+    }
+    LINE("  spblob: %zuB version=%d protectorType=%d", spblob.size(), spblob[0], spblob[1]);
+    std::vector<uint8_t> mContent(spblob.begin() + 2, spblob.end());
+
+    std::vector<uint8_t> protectorSecret = emptyStretchedLskf();  // 32B
+    std::vector<uint8_t> wpw = personalizedHash("weaver-pwd", weaverValue);  // 64B
+    protectorSecret.insert(protectorSecret.end(), wpw.begin(), wpw.end());   // 96B
+
+    // OUTER (keystore2 SP key, no appId / NO_AUTH_REQUIRED)
+    std::vector<uint8_t> intermediate;
+    if (!kmGcmDecrypt(km, spKeyBlob, mContent, nullptr, &intermediate)) {
+        LINE("  spblob OUTER (keystore key) decrypt failed");
+        return false;
+    }
+    LINE("  spblob outer decrypted: %zuB", intermediate.size());
+
+    // INNER (software, key from protectorSecret)
+    std::vector<uint8_t> innerKey = personalizedHash("application-id", protectorSecret);
+    innerKey.resize(32);
+    if (intermediate.size() < kGcmNonceLen + 16) {
+        LINE("  intermediate too small for inner GCM");
+        return false;
+    }
+    std::vector<uint8_t> iv(intermediate.begin(), intermediate.begin() + kGcmNonceLen);
+    std::vector<uint8_t> ct(intermediate.begin() + kGcmNonceLen, intermediate.end());
+    if (!swGcmDecrypt(innerKey, iv, ct, sp)) {
+        LINE("  spblob INNER (software) GCM decrypt failed (wrong protectorSecret/appId?)");
+        return false;
+    }
+    LINE("  SYNTHETIC PASSWORD recovered: %zuB sp[:8]=%s", sp->size(),
+         sp->empty() ? "(empty)" : hex(sp->data(), 8).c_str());
     return true;
 }
 
@@ -503,6 +594,13 @@ int main() {
         if (readWeaverSlot0(&weaverValue)) {
             LINE("CE stage 1 OK: weaver slot 0 unlocked (%zuB) - empty-LSKF derivation correct",
                  weaverValue.size());
+            LINE("--- CE stage 2: unwrap synthetic password ---");
+            std::vector<uint8_t> sp;
+            if (unwrapSyntheticPassword(km, weaverValue, &sp)) {
+                LINE("CE stage 2 OK: synthetic password recovered (%zuB) - SP blob cracked", sp.size());
+            } else {
+                LINE("CE stage 2 failed (see status above)");
+            }
         } else {
             LINE("CE stage 1: weaver read did not return OK (see status above)");
         }
