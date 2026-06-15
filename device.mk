@@ -38,6 +38,12 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     apexservice_stub
 
+# de_keyinstall - installs the systemwide FBE (DE) key into the kernel keyring after the
+# metadata layer is mounted (next FBE domino). Same system-binary + relink model as the
+# apexservice stub. See de_keyinstall/ and recovery/root/system/bin/decrypt.sh.
+PRODUCT_PACKAGES += \
+    de_keyinstall
+
 # Partitions
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
