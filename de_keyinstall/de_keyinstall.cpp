@@ -272,27 +272,22 @@ bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
         AParcel_delete(out);
         return false;
     }
-    int32_t psize = 0;
-    int64_t timeout = 0;
-    int32_t status = -1;
-    std::vector<uint8_t> value;
-    AParcel_readInt32(out, &psize);                            // parcelable size header
-    AParcel_readInt64(out, &timeout);                          // long timeout
-    AParcel_readByteArray(out, &value, byteArrayAllocator);    // byte[] value
-    AParcel_readInt32(out, &status);                           // WeaverReadStatus enum
+    // DEBUG: dump the raw reply words to nail the WeaverReadResponse wire framing.
+    int32_t startPos = AParcel_getDataPosition(out);
+    int32_t endPos = AParcel_getDataSize(out);
+    LINE("  weaver reply raw (pos=%d size=%d):", startPos, endPos);
+    std::string words;
+    for (int32_t p = startPos; p + 4 <= endPos; p += 4) {
+        AParcel_setDataPosition(out, p);
+        int32_t w = 0;
+        AParcel_readInt32(out, &w);
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%08x ", static_cast<uint32_t>(w));
+        words += buf;
+    }
+    LINE("  words: %s", words.c_str());
     AParcel_delete(out);
-
-    const char* sname = status == 0   ? "OK"
-                        : status == 1 ? "FAILED"
-                        : status == 2 ? "INCORRECT_KEY"
-                        : status == 3 ? "THROTTLE"
-                                      : "?";
-    LINE("  weaver read slot 0: status=%d(%s) value=%zuB timeout=%lld", status, sname,
-         value.size(), static_cast<long long>(timeout));
-    if (status != 0) return false;
-    LINE("  weaver value[:8]=%s", value.empty() ? "(empty)" : hex(value.data(), 8).c_str());
-    *outValue = std::move(value);
-    return true;
+    return false;  // debug build - just dump, don't proceed
 }
 
 KeyParameter kpEnum(Tag tag, KeyParameterValue v) { return KeyParameter{tag, std::move(v)}; }
