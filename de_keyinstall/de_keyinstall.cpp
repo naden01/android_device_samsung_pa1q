@@ -3,51 +3,56 @@
  * keyring, for TWRP on the Android-12 base running the Android-16 security stack
  * from the firmware dump.
  *
- * WHY (git history WIP33/34): after decrypt.sh mounts the metadata layer
+ * WHY (see also git history WIP33): after decrypt.sh mounts the metadata layer
  * (dm-default-key -> /data on dm-8), the per-file FBE layer is still locked
- * (/data/misc, /data/system_de/0 = encrypted names, /proc/keys = 0 fscrypt keys). Normal
- * boot installs the systemwide DE key via init's `installkey /data` BEFORE init_user0;
- * the A16 vdc has no command for it. WIP33 proved keymaster_key_blob is the AES-GCM KEK
- * (convertStorageKeyToEphemeral on it -> INVALID_KEY_BLOB); the storage key is INSIDE
- * encrypted_key and must be KeyStorage-unwrapped first.
+ * (/data/misc, /data/system_de/0 show encrypted names, /proc/keys has 0 fscrypt
+ * keys). The first FBE domino is the systemwide DE key. Normal boot installs it via
+ * init's `installkey /data` BEFORE init_user0; the A16 vdc has no command for it.
  *
  * KEY MATERIAL (plaintext-at-rest in /data/unencrypted/key/):
- *   keymaster_key_blob (541B)  - the KeyMint AES-GCM KEK
- *   encrypted_key      (671B)  - AES-256-GCM(storage-key-blob, KEK, appId) = [12B nonce][ct][16B tag]
- *   secdiscardable     (16384B)- personalised SHA512 -> appId
+ *   keymaster_key_blob (541B) - the KeyMint AES-GCM KEK (NOT a storage key: WIP33 proved
+ *                               convertStorageKeyToEphemeral on it -> INVALID_KEY_BLOB)
+ *   encrypted_key      (671B) - AES-256-GCM(storage-key-blob, KEK, appId) = [12B nonce][ct][16B tag]
+ *   secdiscardable     (16384B) - personalised SHA512 -> appId (secure-delete entropy)
  * policy /data/unencrypted/mode = aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0
  *   => v2 policy, HARDWARE-WRAPPED key. identifier (16B): /data/unencrypted/ref.
  *
- * WHY HAND-MARSHALLED libbinder_ndk (no typed AIDL stubs): the TWRP-12.1 build tree does
- * not provide android.hardware.security.keymint-V1-ndk, and a prebuilt .so cannot supply
- * the C++ headers needed to COMPILE typed calls. So - exactly like apexservice_stub - we
- * talk to the A16 KeyMint with RAW binder transactions over libbinder_ndk (which builds
- * with zero extra deps). The on-the-wire bytes are identical to what the generated stubs
- * would emit; only the marshalling is by hand. Run via the A16 bootstrap linker
- * (decrypt.sh lrun) so this A12-built binary reaches the A16 KeyMint over the A16
- * servicemanager. KeyMint AIDL = V3 on this device; method codes are stable since V1.
+ * WHAT THIS DOES (replicates vold KeyStorage::decryptWithKeystoreKey + FsCrypt install):
+ *   1. appId  = SHA512( "Android secdiscardable SHA512" padded to 128B || secdiscardable )
+ *   2. begin(DECRYPT, KEK, {BLOCK_MODE=GCM, MAC_LENGTH=128, NONCE=nonce, APPLICATION_ID=appId})
+ *      (on KEY_REQUIRES_UPGRADE: upgradeKey in-memory, NOT persisted, and retry)
+ *   3. update(ct+tag) + finish() -> storageKeyBlob (the unwrapped DE storage key)
+ *   4. convertStorageKeyToEphemeral(storageKeyBlob) -> per-boot ephemeral wrapped key
+ *      (fallback: if that returns INVALID_KEY_BLOB, the unwrapped key is already the
+ *       long-term wrapped key -> use it directly)
+ *   5. FS_IOC_ADD_ENCRYPTION_KEY on the /data fd, FSCRYPT_ADD_KEY_FLAG_HW_WRAPPED,
+ *      key_spec.type=IDENTIFIER (kernel derives + returns the id); verify id == ref and
+ *      that /data/misc now opens.
  *
- * FLOW (replicates vold KeyStorage::decryptWithKeystoreKey + FsCrypt install):
- *   appId = SHA512( "Android secdiscardable SHA512" padded to 128B || secdiscardable )
- *   begin(DECRYPT, KEK, {BLOCK_MODE=GCM, MAC_LENGTH=128, NONCE, APPLICATION_ID=appId})
- *     [on KEY_REQUIRES_UPGRADE(-62): upgradeKey IN-MEMORY (never persisted) -> retry]
- *   update(ct+tag) + finish() -> storageKeyBlob
- *   convertStorageKeyToEphemeral(storageKeyBlob) -> per-boot ephemeral wrapped key
- *     [fallback: use the unwrapped key directly if INVALID_KEY_BLOB]
- *   FS_IOC_ADD_ENCRYPTION_KEY(HW_WRAPPED, id=IDENTIFIER) -> verify id==ref, /data/misc opens
+ * NON-DESTRUCTIVE: keyring-only, per-boot ephemeral, NOTHING written to disk (the
+ * in-memory upgraded blob is never persisted, unlike the metadata-key bootloop bug). A
+ * wrong key is rejected on identifier mismatch. init_user0 is deliberately NOT run here.
  *
- * NON-DESTRUCTIVE: keyring-only, per-boot ephemeral, nothing written to disk (the upgraded
- * blob stays in memory). A wrong key is rejected on identifier mismatch. init_user0 is NOT
- * run here (only after the DE key is confirmed in, else vold regenerates the user-0 keys).
+ * BUILD/RUN: KeyMint AIDL client (typed V1 NDK stubs, static-linked - the wire format of
+ * KeyParameter unions / BeginResult is too easy to get wrong by hand), only libbinder_ndk
+ * + libcrypto needed at runtime (both in the dump). Run via the A16 bootstrap linker
+ * (decrypt.sh lrun) so the A12-built binary reaches the A16 KeyMint over the A16
+ * servicemanager. V1 client + V3 service is wire-compatible for these stable methods.
  */
 
 #define LOG_TAG "de_keyinstall"
 
-#include <android/binder_ibinder.h>
+#include <aidl/android/hardware/security/keymint/BeginResult.h>
+#include <aidl/android/hardware/security/keymint/BlockMode.h>
+#include <aidl/android/hardware/security/keymint/IKeyMintDevice.h>
+#include <aidl/android/hardware/security/keymint/IKeyMintOperation.h>
+#include <aidl/android/hardware/security/keymint/KeyParameter.h>
+#include <aidl/android/hardware/security/keymint/KeyParameterValue.h>
+#include <aidl/android/hardware/security/keymint/KeyPurpose.h>
+#include <aidl/android/hardware/security/keymint/Tag.h>
+#include <android/binder_auto_utils.h>
 #include <android/binder_manager.h>
-#include <android/binder_parcel.h>
 #include <android/binder_process.h>
-#include <android/binder_status.h>
 #include <android/log.h>
 #include <openssl/sha.h>
 
@@ -61,9 +66,18 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
+
+using aidl::android::hardware::security::keymint::BeginResult;
+using aidl::android::hardware::security::keymint::BlockMode;
+using aidl::android::hardware::security::keymint::IKeyMintDevice;
+using aidl::android::hardware::security::keymint::IKeyMintOperation;
+using aidl::android::hardware::security::keymint::KeyParameter;
+using aidl::android::hardware::security::keymint::KeyParameterValue;
+using aidl::android::hardware::security::keymint::KeyPurpose;
+using aidl::android::hardware::security::keymint::Tag;
 
 #define LINE(...)                                                    \
     do {                                                             \
@@ -73,32 +87,7 @@
         __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); \
     } while (0)
 
-// ---- KeyMint AIDL (V3 on device; method codes stable since V1) --------------
-static const char* DESC_KEYMINT = "android.hardware.security.keymint.IKeyMintDevice";
-static const char* INST_KEYMINT = "android.hardware.security.keymint.IKeyMintDevice/default";
-static const char* DESC_OP = "android.hardware.security.keymint.IKeyMintOperation";
-
-static const transaction_code_t TX_UPGRADE_KEY = 6;   // upgradeKey
-static const transaction_code_t TX_BEGIN = 10;        // begin
-static const transaction_code_t TX_CONVERT = 13;      // convertStorageKeyToEphemeral
-static const transaction_code_t TX_OP_UPDATE = 2;     // IKeyMintOperation.update
-static const transaction_code_t TX_OP_FINISH = 3;     // IKeyMintOperation.finish
-static const transaction_code_t TX_OP_ABORT = 4;      // IKeyMintOperation.abort
-
-// keymaster Tag = (TagType << 28) | id ; values written as int32 on the wire
-static const uint32_t TAG_BLOCK_MODE = 0x20000004u;      // ENUM_REP | 4
-static const uint32_t TAG_MAC_LENGTH = 0x300003EBu;      // UINT     | 1003
-static const uint32_t TAG_NONCE = 0x900003E9u;           // BYTES    | 1001
-static const uint32_t TAG_APPLICATION_ID = 0x90000259u;  // BYTES    | 601
-// KeyParameterValue union field indices (declaration order)
-static const int32_t KPV_blockMode = 2;
-static const int32_t KPV_integer = 10;
-static const int32_t KPV_blob = 13;
-static const int32_t KEYPURPOSE_DECRYPT = 1;
-static const int32_t BLOCKMODE_GCM = 32;
-static const int32_t ERR_KEY_REQUIRES_UPGRADE = -62;
-
-// ---- fscrypt uapi (defined locally; independent of the A12 header age) -------
+// ---- fscrypt uapi (defined locally; independent of the A12 header age) ------
 #define KEY_SPEC_TYPE_IDENTIFIER 2u
 #define ADD_KEY_FLAG_HW_WRAPPED 0x00000001u
 #define KEY_IDENTIFIER_SIZE 16
@@ -126,7 +115,7 @@ struct fscrypt_add_key_arg_local {
 namespace {
 
 const int kGcmNonceLen = 12;
-const int kAppIdHashPersonLen = 128;  // SHA512_CBLOCK (matches vold's secdiscardable hash)
+const int kAppIdHashPersonLen = 128;  // SHA512_CBLOCK, matches vold's secdiscardable hash
 
 bool readFile(const std::string& path, std::vector<uint8_t>* out) {
     int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -150,6 +139,7 @@ std::string hex(const uint8_t* p, size_t n) {
     return s;
 }
 
+// appId = SHA512( "Android secdiscardable SHA512" zero-padded to 128B || secdiscardable )
 std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
     SHA512_CTX c;
     SHA512_Init(&c);
@@ -164,155 +154,99 @@ std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
     return out;
 }
 
-// Client-side AIBinder_Class stubs (we never receive inbound calls). Named functions, NOT
-// lambdas: a lambda deduces its return type as the enum, which won't convert to the
-// AIBinder_Class_onTransact function-pointer typedef (int(*)(...)); an explicit
-// binder_status_t return type does. (Same pattern as apexservice_stub.)
-void* OnCreate(void* args) { return args; }
-void OnDestroy(void* /*userData*/) {}
-binder_status_t OnTransact(AIBinder* /*binder*/, transaction_code_t /*code*/,
-                           const AParcel* /*in*/, AParcel* /*out*/) {
-    return STATUS_UNKNOWN_TRANSACTION;
+KeyParameter kpEnum(Tag tag, KeyParameterValue v) { return KeyParameter{tag, std::move(v)}; }
+
+void logStatus(const char* what, const ::ndk::ScopedAStatus& st) {
+    LINE("  %s: ex=%d serviceSpecific=%d msg=%s", what, st.getExceptionCode(),
+         st.getServiceSpecificError(),
+         st.getMessage() ? st.getMessage() : "(none)");
 }
 
-bool byteArrayAllocator(void* arrayData, int32_t length, int8_t** outBuffer) {
-    auto* vec = static_cast<std::vector<uint8_t>*>(arrayData);
-    if (length < 0) {
-        *outBuffer = nullptr;
-        return true;
+// vold KeyStorage::decryptWithKeystoreKey: AES-256-GCM decrypt encrypted_key with the KEK.
+bool unwrapStorageKey(const std::shared_ptr<IKeyMintDevice>& km, std::vector<uint8_t> kek,
+                      const std::vector<uint8_t>& encryptedKey,
+                      const std::vector<uint8_t>& appId, std::vector<uint8_t>* out) {
+    if (static_cast<int>(encryptedKey.size()) <= kGcmNonceLen + 16) {
+        LINE("  encrypted_key too small (%zuB)", encryptedKey.size());
+        return false;
     }
-    vec->resize(length);
-    *outBuffer = reinterpret_cast<int8_t*>(vec->data());
+    std::vector<uint8_t> nonce(encryptedKey.begin(), encryptedKey.begin() + kGcmNonceLen);
+    std::vector<uint8_t> body(encryptedKey.begin() + kGcmNonceLen, encryptedKey.end());
+
+    std::vector<KeyParameter> params;
+    params.push_back(kpEnum(Tag::BLOCK_MODE,
+                            KeyParameterValue::make<KeyParameterValue::blockMode>(BlockMode::GCM)));
+    params.push_back(kpEnum(Tag::MAC_LENGTH,
+                            KeyParameterValue::make<KeyParameterValue::integer>(128)));
+    params.push_back(kpEnum(Tag::NONCE,
+                            KeyParameterValue::make<KeyParameterValue::blob>(nonce)));
+    params.push_back(kpEnum(Tag::APPLICATION_ID,
+                            KeyParameterValue::make<KeyParameterValue::blob>(appId)));
+
+    BeginResult begun;
+    auto st = km->begin(KeyPurpose::DECRYPT, kek, params, std::nullopt, &begun);
+    if (st.getServiceSpecificError() == -62 /*KEY_REQUIRES_UPGRADE*/) {
+        LINE("  begin -> KEY_REQUIRES_UPGRADE; upgrading KEK in-memory (not persisted)");
+        std::vector<uint8_t> upgraded;
+        std::vector<KeyParameter> upParams;
+        upParams.push_back(kpEnum(Tag::APPLICATION_ID,
+                                  KeyParameterValue::make<KeyParameterValue::blob>(appId)));
+        auto ust = km->upgradeKey(kek, upParams, &upgraded);
+        if (!ust.isOk()) {
+            logStatus("upgradeKey", ust);
+            return false;
+        }
+        kek = std::move(upgraded);
+        st = km->begin(KeyPurpose::DECRYPT, kek, params, std::nullopt, &begun);
+    }
+    if (!st.isOk() || begun.operation == nullptr) {
+        logStatus("begin(DECRYPT)", st);
+        return false;
+    }
+
+    std::vector<uint8_t> partial;
+    st = begun.operation->update(body, std::nullopt, std::nullopt, &partial);
+    if (!st.isOk()) {
+        logStatus("operation.update", st);
+        begun.operation->abort();
+        return false;
+    }
+    std::vector<uint8_t> tail;
+    st = begun.operation->finish(std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                 std::nullopt, &tail);
+    if (!st.isOk()) {
+        logStatus("operation.finish (GCM tag verify)", st);
+        return false;
+    }
+    out->clear();
+    out->insert(out->end(), partial.begin(), partial.end());
+    out->insert(out->end(), tail.begin(), tail.end());
     return true;
 }
 
-void writeBytes(AParcel* p, const std::vector<uint8_t>& v) {
-    AParcel_writeByteArray(p, reinterpret_cast<const int8_t*>(v.data()),
-                           static_cast<int32_t>(v.size()));
-}
-void writeNullByteArray(AParcel* p) { AParcel_writeByteArray(p, nullptr, -1); }
-void writeNullParcelable(AParcel* p) { AParcel_writeInt32(p, 0); }  // @nullable parcelable = null
-
-// Stable-AIDL parcelable/union: [int32 size placeholder][fields]; back-patch size (incl. itself).
-void writeSizePrefixed(AParcel* p, const std::function<void()>& fields) {
-    int32_t start = AParcel_getDataPosition(p);
-    AParcel_writeInt32(p, 0);
-    fields();
-    int32_t end = AParcel_getDataPosition(p);
-    AParcel_setDataPosition(p, start);
-    AParcel_writeInt32(p, end - start);
-    AParcel_setDataPosition(p, end);
-}
-
-// KeyParameter { Tag tag; KeyParameterValue value; } ; value is itself a size-prefixed union.
-void writeKeyParam(AParcel* p, uint32_t tag, int32_t unionIdx,
-                   const std::function<void()>& writeVal) {
-    writeSizePrefixed(p, [&] {
-        AParcel_writeInt32(p, static_cast<int32_t>(tag));
-        writeSizePrefixed(p, [&] {
-            AParcel_writeInt32(p, unionIdx);
-            writeVal();
-        });
-    });
-}
-
-// Generic: transact a two-way method, write args via writeArgs, read the AIDL Status.
-// On success and if `ret` != null, read the trailing byte[] return value. Returns true on
-// EX_NONE; on a service-specific error, *serviceSpecific holds the KeyMint ErrorCode.
-bool callMethod(AIBinder* b, transaction_code_t code,
-                const std::function<void(AParcel*)>& writeArgs, std::vector<uint8_t>* ret,
-                int32_t* serviceSpecific, const char* tag) {
-    if (serviceSpecific) *serviceSpecific = 0;
-    AParcel* in = nullptr;
-    if (AIBinder_prepareTransaction(b, &in) != STATUS_OK) {
-        LINE("  %s: prepareTransaction failed", tag);
-        return false;
+// FS_IOC_ADD_ENCRYPTION_KEY with the hardware-wrapped flag; returns the kernel-derived id.
+int addHwWrappedKey(const std::vector<uint8_t>& key, std::string* gotId) {
+    int dfd = open("/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dfd < 0) {
+        LINE("  open(/data) failed: %s", strerror(errno));
+        return -1;
     }
-    writeArgs(in);
-    AParcel* out = nullptr;
-    binder_status_t tst = AIBinder_transact(b, code, &in, &out, 0);
-    if (tst != STATUS_OK) {
-        LINE("  %s: transport error %d", tag, tst);
-        return false;
+    size_t argSize = sizeof(struct fscrypt_add_key_arg_local) + key.size();
+    std::vector<uint8_t> argBuf(argSize, 0);
+    auto* arg = reinterpret_cast<struct fscrypt_add_key_arg_local*>(argBuf.data());
+    arg->key_spec.type = KEY_SPEC_TYPE_IDENTIFIER;
+    arg->raw_size = static_cast<__u32>(key.size());
+    arg->__flags = ADD_KEY_FLAG_HW_WRAPPED;
+    memcpy(arg->raw, key.data(), key.size());
+    int rc = ioctl(dfd, FS_IOC_ADD_ENCRYPTION_KEY_LOCAL, arg);
+    int e = errno;
+    if (rc == 0) *gotId = hex(arg->key_spec.u.identifier, KEY_IDENTIFIER_SIZE);
+    close(dfd);
+    if (rc != 0) {
+        LINE("  ioctl FS_IOC_ADD_ENCRYPTION_KEY failed: errno=%d (%s)", e, strerror(e));
+        return e;
     }
-    AStatus* st = nullptr;
-    if (AParcel_readStatusHeader(out, &st) != STATUS_OK) {
-        LINE("  %s: readStatusHeader failed", tag);
-        AParcel_delete(out);
-        return false;
-    }
-    bool ok = AStatus_isOk(st);
-    if (!ok) {
-        if (serviceSpecific) *serviceSpecific = AStatus_getServiceSpecificError(st);
-        LINE("  %s: ex=%d serviceSpecific=%d msg=%s", tag, AStatus_getExceptionCode(st),
-             AStatus_getServiceSpecificError(st),
-             AStatus_getMessage(st) ? AStatus_getMessage(st) : "(none)");
-    }
-    AStatus_delete(st);
-    if (ok && ret) {
-        if (AParcel_readByteArray(out, ret, byteArrayAllocator) != STATUS_OK) {
-            LINE("  %s: readByteArray(return) failed", tag);
-            ok = false;
-        }
-    }
-    AParcel_delete(out);
-    return ok;
-}
-
-// begin(DECRYPT, kek, params, null authToken) -> reads BeginResult, returns its operation
-// binder (+1 ref, caller decStrong). *serviceSpecific gets the error code on failure.
-AIBinder* beginDecrypt(AIBinder* km, const std::vector<uint8_t>& kek,
-                       const std::vector<uint8_t>& nonce, const std::vector<uint8_t>& appId,
-                       int32_t* serviceSpecific) {
-    if (serviceSpecific) *serviceSpecific = 0;
-    AParcel* in = nullptr;
-    if (AIBinder_prepareTransaction(km, &in) != STATUS_OK) return nullptr;
-    AParcel_writeInt32(in, KEYPURPOSE_DECRYPT);  // purpose
-    writeBytes(in, kek);                         // keyBlob
-    AParcel_writeInt32(in, 4);                   // KeyParameter[] count
-    writeKeyParam(in, TAG_BLOCK_MODE, KPV_blockMode,
-                  [&] { AParcel_writeInt32(in, BLOCKMODE_GCM); });
-    writeKeyParam(in, TAG_MAC_LENGTH, KPV_integer, [&] { AParcel_writeInt32(in, 128); });
-    writeKeyParam(in, TAG_NONCE, KPV_blob, [&] { writeBytes(in, nonce); });
-    writeKeyParam(in, TAG_APPLICATION_ID, KPV_blob, [&] { writeBytes(in, appId); });
-    writeNullParcelable(in);  // @nullable HardwareAuthToken authToken = null
-
-    AParcel* out = nullptr;
-    if (AIBinder_transact(km, TX_BEGIN, &in, &out, 0) != STATUS_OK) {
-        LINE("  begin: transport error");
-        return nullptr;
-    }
-    AStatus* st = nullptr;
-    AParcel_readStatusHeader(out, &st);
-    bool ok = AStatus_isOk(st);
-    if (!ok) {
-        if (serviceSpecific) *serviceSpecific = AStatus_getServiceSpecificError(st);
-        LINE("  begin: ex=%d serviceSpecific=%d", AStatus_getExceptionCode(st),
-             AStatus_getServiceSpecificError(st));
-    }
-    AStatus_delete(st);
-    AIBinder* op = nullptr;
-    if (ok) {
-        // BeginResult { long challenge; KeyParameter[] params; IKeyMintOperation operation; }
-        int32_t bsize = 0;
-        AParcel_readInt32(out, &bsize);  // parcelable size header (consume)
-        int64_t challenge = 0;
-        AParcel_readInt64(out, &challenge);
-        int32_t pcount = 0;
-        AParcel_readInt32(out, &pcount);
-        for (int32_t i = 0; i < pcount; i++) {  // skip each size-prefixed KeyParameter
-            int32_t pstart = AParcel_getDataPosition(out);
-            int32_t psz = 0;
-            AParcel_readInt32(out, &psz);
-            AParcel_setDataPosition(out, pstart + psz);
-        }
-        if (AParcel_readStrongBinder(out, &op) != STATUS_OK) {
-            LINE("  begin: readStrongBinder(operation) failed");
-            op = nullptr;
-        }
-    }
-    AParcel_delete(out);
-    return op;
+    return 0;
 }
 
 }  // namespace
@@ -328,148 +262,66 @@ int main() {
     bool haveRef = readFile("/data/unencrypted/ref", &ref);
     readFile("/data/unencrypted/mode", &mode);
 
-    LINE("material: KEK=%zuB encrypted_key=%zuB secdiscardable=%zuB ref=%zuB", kek.size(),
-         encKey.size(), secdisc.size(), ref.size());
+    LINE("material: KEK=%zuB encrypted_key=%zuB secdiscardable=%zuB ref=%zuB",
+         kek.size(), encKey.size(), secdisc.size(), ref.size());
     if (!mode.empty())
         LINE("policy: %.*s", static_cast<int>(mode.size()), reinterpret_cast<char*>(mode.data()));
     if (haveRef && ref.size() == KEY_IDENTIFIER_SIZE)
         LINE("expected identifier (ref): %s", hex(ref.data(), ref.size()).c_str());
-    if (!haveKek || !haveEnc || !haveSec ||
-        static_cast<int>(encKey.size()) <= kGcmNonceLen + 16) {
-        LINE("FATAL: missing/short key material (is /data mounted, are we root?)");
+    if (!haveKek || !haveEnc || !haveSec) {
+        LINE("FATAL: missing key material (is /data mounted, are we root?)");
         return 1;
     }
 
     ABinderProcess_setThreadPoolMaxThreadCount(1);
     ABinderProcess_startThreadPool();
-
-    AIBinder_Class* kmClass = AIBinder_Class_define(DESC_KEYMINT, OnCreate, OnDestroy, OnTransact);
-    AIBinder_Class* opClass = AIBinder_Class_define(DESC_OP, OnCreate, OnDestroy, OnTransact);
-
-    AIBinder* km = AServiceManager_getService(INST_KEYMINT);
-    if (km == nullptr || !AIBinder_associateClass(km, kmClass)) {
-        LINE("FATAL: KeyMint not found / class mismatch - is decrypt-keymint up?");
+    ::ndk::SpAIBinder binder(
+        AServiceManager_getService("android.hardware.security.keymint.IKeyMintDevice/default"));
+    std::shared_ptr<IKeyMintDevice> km = IKeyMintDevice::fromBinder(binder);
+    if (km == nullptr) {
+        LINE("FATAL: IKeyMintDevice/default not found - is decrypt-keymint up?");
         return 1;
     }
-    LINE("connected to KeyMint (%s)", INST_KEYMINT);
+    int32_t kmVer = 0;
+    km->getInterfaceVersion(&kmVer);
+    LINE("connected to KeyMint (interface V%d)", kmVer);
 
-    // appId + GCM nonce / body split
+    // step 1+2+3: derive appId, unwrap the storage key from encrypted_key via the KEK
     std::vector<uint8_t> appId = secdiscardableAppId(secdisc);
-    LINE("appId (SHA512[0:8]): %s", hex(appId.data(), 8).c_str());
-    std::vector<uint8_t> nonce(encKey.begin(), encKey.begin() + kGcmNonceLen);
-    std::vector<uint8_t> body(encKey.begin() + kGcmNonceLen, encKey.end());
-
-    // begin(DECRYPT) with in-memory upgrade-on-(-62) retry
-    LINE("begin(DECRYPT) on the KEK...");
-    int32_t ss = 0;
-    AIBinder* op = beginDecrypt(km, kek, nonce, appId, &ss);
-    if (op == nullptr && ss == ERR_KEY_REQUIRES_UPGRADE) {
-        LINE("KEY_REQUIRES_UPGRADE -> upgradeKey in-memory (not persisted)");
-        std::vector<uint8_t> upgraded;
-        int32_t uss = 0;
-        bool uok = callMethod(
-            km, TX_UPGRADE_KEY,
-            [&](AParcel* p) {
-                writeBytes(p, kek);
-                AParcel_writeInt32(p, 1);  // upgradeParams: [APPLICATION_ID]
-                writeKeyParam(p, TAG_APPLICATION_ID, KPV_blob, [&] { writeBytes(p, appId); });
-            },
-            &upgraded, &uss, "upgradeKey");
-        if (uok && !upgraded.empty()) {
-            LINE("upgraded KEK: %zuB; retrying begin", upgraded.size());
-            op = beginDecrypt(km, upgraded, nonce, appId, &ss);
-        }
-    }
-    if (op == nullptr) {
-        LINE("UNWRAP FAILED at begin (serviceSpecific=%d).", ss);
-        LINE("  -33 INVALID_KEY_BLOB => KEK wants APPLICATION_DATA too, or wrong appId");
-        LINE("===== de_keyinstall done (begin failed) =====");
-        AIBinder_decStrong(km);
-        return 2;
-    }
-    if (!AIBinder_associateClass(op, opClass)) {
-        LINE("FATAL: operation binder class mismatch");
-        AIBinder_decStrong(op);
-        AIBinder_decStrong(km);
-        return 2;
-    }
-
-    // update(ct+tag) + finish() -> storage key blob
-    std::vector<uint8_t> part1, part2;
-    if (!callMethod(op, TX_OP_UPDATE,
-                    [&](AParcel* p) {
-                        writeBytes(p, body);     // input
-                        writeNullParcelable(p);  // authToken
-                        writeNullParcelable(p);  // timeStampToken
-                    },
-                    &part1, nullptr, "update")) {
-        callMethod(op, TX_OP_ABORT, [](AParcel*) {}, nullptr, nullptr, "abort");
-        AIBinder_decStrong(op);
-        AIBinder_decStrong(km);
-        LINE("===== de_keyinstall done (update failed) =====");
-        return 2;
-    }
-    int32_t fss = 0;
-    bool fok = callMethod(op, TX_OP_FINISH,
-                          [](AParcel* p) {
-                              writeNullByteArray(p);   // input
-                              writeNullByteArray(p);   // signature
-                              writeNullParcelable(p);  // authToken
-                              writeNullParcelable(p);  // timeStampToken
-                              writeNullByteArray(p);   // confirmationToken
-                          },
-                          &part2, &fss, "finish");
-    AIBinder_decStrong(op);
-    if (!fok) {
-        LINE("UNWRAP FAILED at finish (serviceSpecific=%d).", fss);
-        LINE("  -30 VERIFICATION_FAILED => GCM tag/body split wrong");
-        LINE("===== de_keyinstall done (finish failed) =====");
-        AIBinder_decStrong(km);
-        return 2;
-    }
+    LINE("appId (SHA512): %s", hex(appId.data(), 8).c_str());
+    LINE("unwrapping storage key (begin/update/finish AES-256-GCM)...");
     std::vector<uint8_t> storageKey;
-    storageKey.insert(storageKey.end(), part1.begin(), part1.end());
-    storageKey.insert(storageKey.end(), part2.begin(), part2.end());
+    if (!unwrapStorageKey(km, kek, encKey, appId, &storageKey)) {
+        LINE("UNWRAP FAILED - see status above.");
+        LINE("  INVALID_KEY_BLOB(-33) => KEK needs APPLICATION_DATA too, or wrong appId hash");
+        LINE("  VERIFICATION_FAILED(-30) => GCM tag/body split wrong (tag handling)");
+        LINE("===== de_keyinstall done (unwrap failed) =====");
+        return 2;
+    }
     LINE("storage key unwrapped: %zuB", storageKey.size());
 
-    // storage key -> per-boot ephemeral wrapped key (FBE uses the ephemeral form)
-    std::vector<uint8_t> installKey, ephemeral;
-    int32_t cs = 0;
-    bool conv = callMethod(km, TX_CONVERT, [&](AParcel* p) { writeBytes(p, storageKey); },
-                           &ephemeral, &cs, "convertStorageKeyToEphemeral");
-    AIBinder_decStrong(km);
-    if (conv && !ephemeral.empty()) {
+    // step 4: storage key -> per-boot ephemeral wrapped key (FBE uses the ephemeral form)
+    std::vector<uint8_t> installKey;
+    std::vector<uint8_t> ephemeral;
+    auto cst = km->convertStorageKeyToEphemeral(storageKey, &ephemeral);
+    if (cst.isOk()) {
         LINE("convertStorageKeyToEphemeral OK: %zuB", ephemeral.size());
         installKey = std::move(ephemeral);
     } else {
-        LINE("convert failed/empty (ss=%d) -> using unwrapped key as long-term wrapped", cs);
+        logStatus("convertStorageKeyToEphemeral", cst);
+        LINE("  -> falling back to the unwrapped key as the long-term wrapped key");
         installKey = storageKey;
     }
 
-    // install into the kernel keyring, hardware-wrapped
+    // step 5: install into the kernel keyring, hardware-wrapped
     LINE("FS_IOC_ADD_ENCRYPTION_KEY (HW_WRAPPED, raw=%zuB)...", installKey.size());
-    int dfd = open("/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (dfd < 0) {
-        LINE("FATAL: open(/data): %s", strerror(errno));
-        return 3;
-    }
-    size_t argSize = sizeof(struct fscrypt_add_key_arg_local) + installKey.size();
-    std::vector<uint8_t> argBuf(argSize, 0);
-    auto* arg = reinterpret_cast<struct fscrypt_add_key_arg_local*>(argBuf.data());
-    arg->key_spec.type = KEY_SPEC_TYPE_IDENTIFIER;
-    arg->raw_size = static_cast<__u32>(installKey.size());
-    arg->__flags = ADD_KEY_FLAG_HW_WRAPPED;
-    memcpy(arg->raw, installKey.data(), installKey.size());
-    int rc = ioctl(dfd, FS_IOC_ADD_ENCRYPTION_KEY_LOCAL, arg);
-    int e = errno;
-    close(dfd);
+    std::string gotId;
+    int rc = addHwWrappedKey(installKey, &gotId);
     if (rc != 0) {
-        LINE("  ioctl FS_IOC_ADD_ENCRYPTION_KEY failed: errno=%d (%s)", e, strerror(e));
-        LINE("  EINVAL => wrong key form (flip ephemeral<->long-term)");
+        LINE("  EINVAL => wrong key form (try the other of ephemeral/long-term)");
         LINE("===== de_keyinstall done (ioctl failed) =====");
         return 3;
     }
-    std::string gotId = hex(arg->key_spec.u.identifier, KEY_IDENTIFIER_SIZE);
     LINE("KEY INSTALLED. kernel-derived identifier: %s", gotId.c_str());
     if (haveRef && ref.size() == KEY_IDENTIFIER_SIZE) {
         std::string want = hex(ref.data(), ref.size());
