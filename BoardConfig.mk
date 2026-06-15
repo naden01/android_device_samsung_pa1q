@@ -148,6 +148,11 @@ BOARD_USES_METADATA_PARTITION := true
 # .so deps into the recovery ramdisk instead of forcing a recovery build.
 TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES += $(TARGET_OUT_EXECUTABLES)/apexservice_stub
 
+# de_keyinstall: installs the systemwide FBE (DE) key into the kernel keyring (next FBE
+# domino after the metadata mount). KeyMint client via libbinder_ndk, run through
+# hal_run.sh; same system-binary + relink model as the apexservice stub above.
+TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES += $(TARGET_OUT_EXECUTABLES)/de_keyinstall
+
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
 TW_FRAMERATE := 120
