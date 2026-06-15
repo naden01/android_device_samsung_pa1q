@@ -260,29 +260,69 @@ int addHwWrappedKey(const std::vector<uint8_t>& key, std::string* gotId) {
     return 0;
 }
 
+// storage key blob -> per-boot ephemeral wrapped key, with in-memory upgrade on -62.
+bool toEphemeral(const std::shared_ptr<IKeyMintDevice>& km, const std::vector<uint8_t>& storageKey,
+                 std::vector<uint8_t>* out) {
+    std::vector<uint8_t> eph;
+    auto cst = km->convertStorageKeyToEphemeral(storageKey, &eph);
+    if (cst.getServiceSpecificError() == -62 /*KEY_REQUIRES_UPGRADE*/) {
+        LINE("  convert -> KEY_REQUIRES_UPGRADE; upgrading storage key in-memory");
+        std::vector<uint8_t> up;
+        auto ust = km->upgradeKey(storageKey, std::vector<KeyParameter>{}, &up);
+        if (ust.isOk() && !up.empty()) {
+            cst = km->convertStorageKeyToEphemeral(up, &eph);
+        } else {
+            logStatus("upgradeKey(storage)", ust);
+        }
+    }
+    if (!cst.isOk()) {
+        logStatus("convertStorageKeyToEphemeral", cst);
+        return false;
+    }
+    *out = std::move(eph);
+    return true;
+}
+
+// Install one hardware-wrapped fscrypt key from a vold KeyStorage dir (kEmptyAuthentication
+// form: keymaster_key_blob + encrypted_key + secdiscardable). Unlocks whatever the key's
+// policy protects. NON-DESTRUCTIVE (keyring only). Returns true on install.
+bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string& dir,
+                   const char* label, const std::vector<uint8_t>* expectedRef) {
+    LINE("--- install %s [%s] ---", label, dir.c_str());
+    std::vector<uint8_t> kek, encKey, sec;
+    if (!readFile(dir + "/keymaster_key_blob", &kek) || !readFile(dir + "/encrypted_key", &encKey) ||
+        !readFile(dir + "/secdiscardable", &sec)) {
+        LINE("  missing key material in %s", dir.c_str());
+        return false;
+    }
+    std::vector<uint8_t> appId = secdiscardableAppId(sec);
+    std::vector<uint8_t> storageKey;
+    if (!unwrapStorageKey(km, kek, encKey, appId, &storageKey)) return false;
+    LINE("  storage key unwrapped: %zuB", storageKey.size());
+    std::vector<uint8_t> ephemeral;
+    if (!toEphemeral(km, storageKey, &ephemeral)) return false;
+    LINE("  ephemeral wrapped key: %zuB", ephemeral.size());
+    std::string gotId;
+    if (addHwWrappedKey(ephemeral, &gotId) != 0) return false;
+    LINE("  KEY INSTALLED, kernel id=%s", gotId.c_str());
+    if (expectedRef && expectedRef->size() == KEY_IDENTIFIER_SIZE) {
+        std::string want = hex(expectedRef->data(), expectedRef->size());
+        LINE("  id %s ref(%s)", gotId == want ? "==" : "!=", want.c_str());
+    }
+    return true;
+}
+
 }  // namespace
+
+static bool dirReadable(const char* path) {
+    int fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return false;
+    close(fd);
+    return true;
+}
 
 int main() {
     LINE("===== de_keyinstall start =====");
-
-    const std::string kdir = "/data/unencrypted/key/";
-    std::vector<uint8_t> kek, encKey, secdisc, ref, mode;
-    bool haveKek = readFile(kdir + "keymaster_key_blob", &kek);
-    bool haveEnc = readFile(kdir + "encrypted_key", &encKey);
-    bool haveSec = readFile(kdir + "secdiscardable", &secdisc);
-    bool haveRef = readFile("/data/unencrypted/ref", &ref);
-    readFile("/data/unencrypted/mode", &mode);
-
-    LINE("material: KEK=%zuB encrypted_key=%zuB secdiscardable=%zuB ref=%zuB",
-         kek.size(), encKey.size(), secdisc.size(), ref.size());
-    if (!mode.empty())
-        LINE("policy: %.*s", static_cast<int>(mode.size()), reinterpret_cast<char*>(mode.data()));
-    if (haveRef && ref.size() == KEY_IDENTIFIER_SIZE)
-        LINE("expected identifier (ref): %s", hex(ref.data(), ref.size()).c_str());
-    if (!haveKek || !haveEnc || !haveSec) {
-        LINE("FATAL: missing key material (is /data mounted, are we root?)");
-        return 1;
-    }
 
     ABinderProcess_setThreadPoolMaxThreadCount(1);
     ABinderProcess_startThreadPool();
@@ -297,70 +337,25 @@ int main() {
     km->getInterfaceVersion(&kmVer);
     LINE("connected to KeyMint (interface V%d)", kmVer);
 
-    // step 1+2+3: derive appId, unwrap the storage key from encrypted_key via the KEK
-    std::vector<uint8_t> appId = secdiscardableAppId(secdisc);
-    LINE("appId (SHA512): %s", hex(appId.data(), 8).c_str());
-    LINE("unwrapping storage key (begin/update/finish AES-256-GCM)...");
-    std::vector<uint8_t> storageKey;
-    if (!unwrapStorageKey(km, kek, encKey, appId, &storageKey)) {
-        LINE("UNWRAP FAILED - see status above.");
-        LINE("  INVALID_KEY_BLOB(-33) => KEK needs APPLICATION_DATA too, or wrong appId hash");
-        LINE("  VERIFICATION_FAILED(-30) => GCM tag/body split wrong (tag handling)");
-        LINE("===== de_keyinstall done (unwrap failed) =====");
-        return 2;
-    }
-    LINE("storage key unwrapped: %zuB", storageKey.size());
+    // Layer 1: systemwide DE key (/data/unencrypted/key). Unlocks /data/misc - which is
+    // where the per-user keys live, so this MUST go first to even read layer 2.
+    std::vector<uint8_t> ref;
+    bool haveRef = readFile("/data/unencrypted/ref", &ref);
+    bool sysOk = installKeyDir(km, "/data/unencrypted/key", "systemwide DE",
+                               haveRef ? &ref : nullptr);
+    LINE("VERIFY: /data/misc %s", dirReadable("/data/misc") ? "READABLE (DE unlocked)" : "locked");
 
-    // step 4: storage key -> per-boot ephemeral wrapped key (FBE installs the ephemeral
-    // form, NOT the raw storage blob). The unwrapped storage key was created under A16, so
-    // KeyMint here may return KEY_REQUIRES_UPGRADE - upgrade it in-memory (not persisted)
-    // and retry, same as the KEK.
-    std::vector<uint8_t> installKey;
-    std::vector<uint8_t> ephemeral;
-    auto cst = km->convertStorageKeyToEphemeral(storageKey, &ephemeral);
-    if (cst.getServiceSpecificError() == -62 /*KEY_REQUIRES_UPGRADE*/) {
-        LINE("convert -> KEY_REQUIRES_UPGRADE; upgrading storage key in-memory (not persisted)");
-        std::vector<uint8_t> upStorage;
-        auto ust = km->upgradeKey(storageKey, std::vector<KeyParameter>{}, &upStorage);
-        if (ust.isOk() && !upStorage.empty()) {
-            LINE("upgraded storage key: %zuB; retrying convert", upStorage.size());
-            storageKey = std::move(upStorage);
-            cst = km->convertStorageKeyToEphemeral(storageKey, &ephemeral);
-        } else {
-            logStatus("upgradeKey(storage)", ust);
-        }
-    }
-    if (cst.isOk()) {
-        LINE("convertStorageKeyToEphemeral OK: %zuB", ephemeral.size());
-        installKey = std::move(ephemeral);
-    } else {
-        logStatus("convertStorageKeyToEphemeral", cst);
-        LINE("  -> falling back to the unwrapped key as the long-term wrapped key");
-        installKey = storageKey;
+    // Layer 2: user-0 DE key (/data/misc/vold/user_keys/de/0). Same kEmptyAuthentication
+    // format - readable only now that layer 1 unlocked /data/misc. Unlocks /data/system_de/0
+    // and /data/user_de/0, exposing the spblob needed for the CE layer.
+    if (sysOk && dirReadable("/data/misc/vold/user_keys/de/0")) {
+        installKeyDir(km, "/data/misc/vold/user_keys/de/0", "user-0 DE", nullptr);
+        LINE("VERIFY: /data/system_de/0 %s",
+             dirReadable("/data/system_de/0") ? "READABLE (user-0 DE unlocked)" : "locked");
+    } else if (sysOk) {
+        LINE("user-0 DE key dir not present/readable at /data/misc/vold/user_keys/de/0");
     }
 
-    // step 5: install into the kernel keyring, hardware-wrapped
-    LINE("FS_IOC_ADD_ENCRYPTION_KEY (HW_WRAPPED, raw=%zuB)...", installKey.size());
-    std::string gotId;
-    int rc = addHwWrappedKey(installKey, &gotId);
-    if (rc != 0) {
-        LINE("  EINVAL => wrong key form (try the other of ephemeral/long-term)");
-        LINE("===== de_keyinstall done (ioctl failed) =====");
-        return 3;
-    }
-    LINE("KEY INSTALLED. kernel-derived identifier: %s", gotId.c_str());
-    if (haveRef && ref.size() == KEY_IDENTIFIER_SIZE) {
-        std::string want = hex(ref.data(), ref.size());
-        LINE("identifier %s ref (%s)", gotId == want ? "==" : "!=", want.c_str());
-    }
-
-    int mfd = open("/data/misc", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (mfd >= 0) {
-        close(mfd);
-        LINE("VERIFY: /data/misc now opens - DE layer UNLOCKED");
-    } else {
-        LINE("VERIFY: /data/misc still %s", strerror(errno));
-    }
-    LINE("===== de_keyinstall done (installed) =====");
-    return 0;
+    LINE("===== de_keyinstall done =====");
+    return sysOk ? 0 : 2;
 }
