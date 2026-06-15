@@ -164,6 +164,17 @@ std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
     return out;
 }
 
+// Client-side AIBinder_Class stubs (we never receive inbound calls). Named functions, NOT
+// lambdas: a lambda deduces its return type as the enum, which won't convert to the
+// AIBinder_Class_onTransact function-pointer typedef (int(*)(...)); an explicit
+// binder_status_t return type does. (Same pattern as apexservice_stub.)
+void* OnCreate(void* args) { return args; }
+void OnDestroy(void* /*userData*/) {}
+binder_status_t OnTransact(AIBinder* /*binder*/, transaction_code_t /*code*/,
+                           const AParcel* /*in*/, AParcel* /*out*/) {
+    return STATUS_UNKNOWN_TRANSACTION;
+}
+
 bool byteArrayAllocator(void* arrayData, int32_t length, int8_t** outBuffer) {
     auto* vec = static_cast<std::vector<uint8_t>*>(arrayData);
     if (length < 0) {
@@ -332,16 +343,8 @@ int main() {
     ABinderProcess_setThreadPoolMaxThreadCount(1);
     ABinderProcess_startThreadPool();
 
-    AIBinder_Class* kmClass = AIBinder_Class_define(
-        DESC_KEYMINT, [](void* a) { return a; }, [](void*) {},
-        [](AIBinder*, transaction_code_t, const AParcel*, AParcel*) {
-            return STATUS_UNKNOWN_TRANSACTION;
-        });
-    AIBinder_Class* opClass = AIBinder_Class_define(
-        DESC_OP, [](void* a) { return a; }, [](void*) {},
-        [](AIBinder*, transaction_code_t, const AParcel*, AParcel*) {
-            return STATUS_UNKNOWN_TRANSACTION;
-        });
+    AIBinder_Class* kmClass = AIBinder_Class_define(DESC_KEYMINT, OnCreate, OnDestroy, OnTransact);
+    AIBinder_Class* opClass = AIBinder_Class_define(DESC_OP, OnCreate, OnDestroy, OnTransact);
 
     AIBinder* km = AServiceManager_getService(INST_KEYMINT);
     if (km == nullptr || !AIBinder_associateClass(km, kmClass)) {
