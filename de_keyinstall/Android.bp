@@ -1,0 +1,24 @@
+// de_keyinstall: installs the systemwide FBE (DE) key into the kernel keyring under
+// TWRP, by calling the A16 KeyMint (convertStorageKeyToEphemeral) and FS_IOC_ADD_-
+// ENCRYPTION_KEY with the hardware-wrapped flag. See de_keyinstall.cpp for the full
+// rationale. This is the next FBE domino after decrypt.sh mounts the metadata layer.
+//
+// Same build/run model as apexservice_stub: linked against libbinder_ndk (frozen NDK
+// binder ABI - this A12-built client must talk to the A16 KeyMint over the A16
+// servicemanager) and run via hal_run.sh (bootstrap linker + A16 libbinder_ndk.so from
+// the dump), so the A16 library does the version-correct marshalling. Built as a NORMAL
+// (system) cc_binary - the TWRP-12.1 tree has no recovery variant of these libs; the
+// system variant links fine and TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES (BoardConfig)
+// copies it into the recovery ramdisk. PRODUCT_PACKAGES (device.mk) builds + installs it.
+cc_binary {
+    name: "de_keyinstall",
+    srcs: ["de_keyinstall.cpp"],
+    shared_libs: [
+        "libbinder_ndk",
+        "liblog",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}

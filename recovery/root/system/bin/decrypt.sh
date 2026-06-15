@@ -272,6 +272,25 @@ else
     echo "/data not mounted - check decrypt.log for the vold mountFstab error"
 fi
 
+# 6a. FBE layer - install the systemwide DE key (next domino after the metadata mount).
+# The metadata mount only unlocks the block layer; /data/misc + /data/system_de/0 are
+# still per-file (FBE) encrypted (zero fscrypt keys in the keyring). The systemwide DE
+# key is hardware-wrapped (mode wrappedkey_v0); de_keyinstall asks the A16 KeyMint to
+# convert /data/unencrypted/key into a per-boot ephemeral wrapped key and installs it via
+# FS_IOC_ADD_ENCRYPTION_KEY. NON-DESTRUCTIVE (keyring-only, per-boot, nothing on disk) and
+# independent of the metadata key restored below. We do NOT run init_user0 here - that is
+# only safe once the DE key is confirmed in (else vold regenerates the real user-0 keys).
+# Requires KeyMint up; runs via the A16 bootstrap linker so it can reach the A16 binder.
+if grep -qE " /data " /proc/mounts 2>/dev/null \
+   && [ -e /data/unencrypted/key/keymaster_key_blob ] \
+   && [ -x /system/bin/de_keyinstall ]; then
+    echo "----- FBE: install systemwide DE key -----"
+    lrun /system/bin/de_keyinstall 2>&1
+    echo "fscrypt keyring now: $(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
+else
+    echo "FBE DE-key install skipped (no /data, no key material, or binary missing)"
+fi
+
 # CRITICAL boot-safety - ALWAYS restore the pristine metadata key before exit, whether or
 # not the mount succeeded. By this point the dir is mutated regardless: the ROT-sync probe
 # wrote the TWRP-context ROT (0x17) and vold's mountFstab made KeyMint upgrade
