@@ -49,6 +49,7 @@
 #include <aidl/android/hardware/security/keymint/KeyParameter.h>
 #include <aidl/android/hardware/security/keymint/KeyParameterValue.h>
 #include <aidl/android/hardware/security/keymint/KeyPurpose.h>
+#include <aidl/android/hardware/security/keymint/PaddingMode.h>
 #include <aidl/android/hardware/security/keymint/Tag.h>
 #include <android/binder_auto_utils.h>
 #include <android/binder_manager.h>
@@ -77,6 +78,7 @@ using aidl::android::hardware::security::keymint::IKeyMintOperation;
 using aidl::android::hardware::security::keymint::KeyParameter;
 using aidl::android::hardware::security::keymint::KeyParameterValue;
 using aidl::android::hardware::security::keymint::KeyPurpose;
+using aidl::android::hardware::security::keymint::PaddingMode;
 using aidl::android::hardware::security::keymint::Tag;
 
 #define LINE(...)                                                    \
@@ -176,6 +178,10 @@ bool unwrapStorageKey(const std::shared_ptr<IKeyMintDevice>& km, std::vector<uin
     std::vector<KeyParameter> params;
     params.push_back(kpEnum(Tag::BLOCK_MODE,
                             KeyParameterValue::make<KeyParameterValue::blockMode>(BlockMode::GCM)));
+    // vold's GcmModeMacLen sets PADDING=NONE alongside GCM+MAC_LENGTH; omitting it makes
+    // KeyMint reject begin with UNSUPPORTED_PADDING_MODE(-10).
+    params.push_back(kpEnum(Tag::PADDING,
+                            KeyParameterValue::make<KeyParameterValue::paddingMode>(PaddingMode::NONE)));
     params.push_back(kpEnum(Tag::MAC_LENGTH,
                             KeyParameterValue::make<KeyParameterValue::integer>(128)));
     params.push_back(kpEnum(Tag::NONCE,
