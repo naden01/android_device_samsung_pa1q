@@ -173,7 +173,7 @@ std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
 }
 
 // AParcel byte[] reader (for hand-marshalled IWeaver replies).
-bool byteArrayAllocator(void* arrayData, int32_t length, int8_t** outBuffer) {
+[[maybe_unused]] bool byteArrayAllocator(void* arrayData, int32_t length, int8_t** outBuffer) {
     auto* vec = static_cast<std::vector<uint8_t>*>(arrayData);
     if (length < 0) {
         *outBuffer = nullptr;
