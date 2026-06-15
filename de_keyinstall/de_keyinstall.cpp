@@ -107,8 +107,13 @@ struct fscrypt_add_key_arg_local {
     struct fscrypt_key_specifier_local key_spec;
     __u32 raw_size;
     __u32 key_id;
-    __u32 __flags;
+    // EXACT order from the device kernel uapi (bionic .../fscrypt.h): __reserved[7] comes
+    // BEFORE __flags (Qualcomm repurposed the LAST reserved word as __flags, offset 76).
+    // Getting this order wrong made the kernel read HW_WRAPPED as a non-zero __reserved
+    // word -> EINVAL, and see __flags as 0 (not hw-wrapped). Total fixed size = 80B either
+    // way, so the _IOWR number is unchanged.
     __u32 __reserved[7];
+    __u32 __flags;
     __u8 raw[];
 };
 #define FS_IOC_ADD_ENCRYPTION_KEY_LOCAL \
