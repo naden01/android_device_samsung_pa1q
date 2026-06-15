@@ -201,7 +201,6 @@ binder_status_t WeaverOnTransact(AIBinder* /*b*/, transaction_code_t /*code*/,
 //   read(slot 0, weaverKey) -> WeaverReadResponse{ long timeout; byte[] value; status }
 // Returns true + the weaver value on WeaverReadStatus.OK(0).
 bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
-    (void)outValue;  // debug build dumps raw reply and returns false; outValue unused for now
     ::ndk::SpAIBinder wb(AServiceManager_getService("android.hardware.weaver.IWeaver/default"));
     AIBinder* weaver = wb.get();
     if (weaver == nullptr) {
@@ -230,8 +229,9 @@ bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
         bool ok = AStatus_isOk(st);
         AStatus_delete(st);
         if (ok) {
-            int32_t psize = 0;
-            AParcel_readInt32(out, &psize);  // parcelable size header
+            int32_t nonNull = 0, psize = 0;
+            AParcel_readInt32(out, &nonNull);  // NDK non-null parcelable marker (1)
+            AParcel_readInt32(out, &psize);    // parcelable size
             AParcel_readInt32(out, &slots);
             AParcel_readInt32(out, &keySize);
             AParcel_readInt32(out, &valueSize);
@@ -273,22 +273,30 @@ bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
         AParcel_delete(out);
         return false;
     }
-    // DEBUG: dump the raw reply words to nail the WeaverReadResponse wire framing.
-    int32_t startPos = AParcel_getDataPosition(out);
-    int32_t endPos = AParcel_getDataSize(out);
-    LINE("  weaver reply raw (pos=%d size=%d):", startPos, endPos);
-    std::string words;
-    for (int32_t p = startPos; p + 4 <= endPos; p += 4) {
-        AParcel_setDataPosition(out, p);
-        int32_t w = 0;
-        AParcel_readInt32(out, &w);
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%08x ", static_cast<uint32_t>(w));
-        words += buf;
-    }
-    LINE("  words: %s", words.c_str());
+    // WeaverReadResponse reply framing (decoded from raw words): NDK writes a non-null
+    // parcelable marker (1) + size, THEN the fields in declaration order:
+    //   [int32 nonNull=1][int32 size][int64 timeout][byte[] value][int32 status]
+    int32_t nonNull = 0, psize = 0, status = -1;
+    int64_t timeout = 0;
+    std::vector<uint8_t> value;
+    AParcel_readInt32(out, &nonNull);                        // non-null marker
+    AParcel_readInt32(out, &psize);                          // parcelable size
+    AParcel_readInt64(out, &timeout);                        // long timeout
+    AParcel_readByteArray(out, &value, byteArrayAllocator);  // byte[] value
+    AParcel_readInt32(out, &status);                         // WeaverReadStatus
     AParcel_delete(out);
-    return false;  // debug build - just dump, don't proceed
+
+    const char* sname = status == 0   ? "OK"
+                        : status == 1 ? "FAILED"
+                        : status == 2 ? "INCORRECT_KEY"
+                        : status == 3 ? "THROTTLE"
+                                      : "?";
+    LINE("  weaver read slot 0: status=%d(%s) value=%zuB timeout=%lld", status, sname,
+         value.size(), static_cast<long long>(timeout));
+    if (status != 0) return false;
+    LINE("  weaver value[:8]=%s", value.empty() ? "(empty)" : hex(value.data(), 8).c_str());
+    *outValue = std::move(value);
+    return true;
 }
 
 KeyParameter kpEnum(Tag tag, KeyParameterValue v) { return KeyParameter{tag, std::move(v)}; }
