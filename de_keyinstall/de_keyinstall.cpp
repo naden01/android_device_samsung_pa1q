@@ -201,6 +201,7 @@ binder_status_t WeaverOnTransact(AIBinder* /*b*/, transaction_code_t /*code*/,
 //   read(slot 0, weaverKey) -> WeaverReadResponse{ long timeout; byte[] value; status }
 // Returns true + the weaver value on WeaverReadStatus.OK(0).
 bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
+    (void)outValue;  // debug build dumps raw reply and returns false; outValue unused for now
     ::ndk::SpAIBinder wb(AServiceManager_getService("android.hardware.weaver.IWeaver/default"));
     AIBinder* weaver = wb.get();
     if (weaver == nullptr) {
