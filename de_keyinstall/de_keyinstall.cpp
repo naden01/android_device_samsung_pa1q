@@ -306,10 +306,25 @@ int main() {
     }
     LINE("storage key unwrapped: %zuB", storageKey.size());
 
-    // step 4: storage key -> per-boot ephemeral wrapped key (FBE uses the ephemeral form)
+    // step 4: storage key -> per-boot ephemeral wrapped key (FBE installs the ephemeral
+    // form, NOT the raw storage blob). The unwrapped storage key was created under A16, so
+    // KeyMint here may return KEY_REQUIRES_UPGRADE - upgrade it in-memory (not persisted)
+    // and retry, same as the KEK.
     std::vector<uint8_t> installKey;
     std::vector<uint8_t> ephemeral;
     auto cst = km->convertStorageKeyToEphemeral(storageKey, &ephemeral);
+    if (cst.getServiceSpecificError() == -62 /*KEY_REQUIRES_UPGRADE*/) {
+        LINE("convert -> KEY_REQUIRES_UPGRADE; upgrading storage key in-memory (not persisted)");
+        std::vector<uint8_t> upStorage;
+        auto ust = km->upgradeKey(storageKey, std::vector<KeyParameter>{}, &upStorage);
+        if (ust.isOk() && !upStorage.empty()) {
+            LINE("upgraded storage key: %zuB; retrying convert", upStorage.size());
+            storageKey = std::move(upStorage);
+            cst = km->convertStorageKeyToEphemeral(storageKey, &ephemeral);
+        } else {
+            logStatus("upgradeKey(storage)", ust);
+        }
+    }
     if (cst.isOk()) {
         LINE("convertStorageKeyToEphemeral OK: %zuB", ephemeral.size());
         installKey = std::move(ephemeral);
