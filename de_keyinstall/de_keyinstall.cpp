@@ -52,8 +52,11 @@
 #include <aidl/android/hardware/security/keymint/PaddingMode.h>
 #include <aidl/android/hardware/security/keymint/Tag.h>
 #include <android/binder_auto_utils.h>
+#include <android/binder_ibinder.h>
 #include <android/binder_manager.h>
+#include <android/binder_parcel.h>
 #include <android/binder_process.h>
+#include <android/binder_status.h>
 #include <android/log.h>
 #include <openssl/sha.h>
 
@@ -63,6 +66,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -146,19 +150,149 @@ std::string hex(const uint8_t* p, size_t n) {
     return s;
 }
 
-// appId = SHA512( "Android secdiscardable SHA512" zero-padded to 128B || secdiscardable )
-std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
+// LSS SyntheticPasswordCrypto.personalizedHash: SHA-512( pad128(personalization) || data... ).
+// Same recipe vold uses for the secdiscardable appId (just a different personalization string).
+std::vector<uint8_t> personalizedHash(const std::string& personalization,
+                                      const std::vector<uint8_t>& data) {
     SHA512_CTX c;
     SHA512_Init(&c);
     char person[kAppIdHashPersonLen];
     memset(person, 0, sizeof(person));
-    const char* prefix = "Android secdiscardable SHA512";
-    memcpy(person, prefix, strlen(prefix));
+    memcpy(person, personalization.data(),
+           std::min(personalization.size(), static_cast<size_t>(kAppIdHashPersonLen)));
     SHA512_Update(&c, person, sizeof(person));
-    SHA512_Update(&c, sd.data(), sd.size());
+    SHA512_Update(&c, data.data(), data.size());
     std::vector<uint8_t> out(SHA512_DIGEST_LENGTH);
     SHA512_Final(out.data(), &c);
     return out;
+}
+
+// vold KeyStorage secdiscardable appId = personalizedHash with vold's fixed prefix.
+std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
+    return personalizedHash("Android secdiscardable SHA512", sd);
+}
+
+// AParcel byte[] reader (for hand-marshalled IWeaver replies).
+bool byteArrayAllocator(void* arrayData, int32_t length, int8_t** outBuffer) {
+    auto* vec = static_cast<std::vector<uint8_t>*>(arrayData);
+    if (length < 0) {
+        *outBuffer = nullptr;
+        return true;
+    }
+    vec->resize(length);
+    *outBuffer = reinterpret_cast<int8_t*>(vec->data());
+    return true;
+}
+
+// Client-side AIBinder_Class stubs for the hand-marshalled IWeaver proxy (we never receive
+// inbound calls). Named functions (not lambdas) so the onTransact return type is exactly
+// binder_status_t for the function-pointer typedef.
+void* WeaverOnCreate(void* args) { return args; }
+void WeaverOnDestroy(void* /*userData*/) {}
+binder_status_t WeaverOnTransact(AIBinder* /*b*/, transaction_code_t /*code*/,
+                                 const AParcel* /*in*/, AParcel* /*out*/) {
+    return STATUS_UNKNOWN_TRANSACTION;
+}
+
+// IWeaver V2 (android.hardware.weaver) read for the EMPTY-LSKF protector. Hand-marshalled
+// over libbinder_ndk (no typed weaver stub in the TWRP-12.1 tree). Derivation (A16 LSS):
+//   stretchedLskf = "default-password" zero-padded to 32B (no scrypt; empty LSKF)
+//   weaverKey     = personalizedHash("weaver-key", stretchedLskf)[:keySize]
+//   read(slot 0, weaverKey) -> WeaverReadResponse{ long timeout; byte[] value; status }
+// Returns true + the weaver value on WeaverReadStatus.OK(0).
+bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
+    ::ndk::SpAIBinder wb(AServiceManager_getService("android.hardware.weaver.IWeaver/default"));
+    AIBinder* weaver = wb.get();
+    if (weaver == nullptr) {
+        LINE("  weaver: IWeaver/default not found - is decrypt-hermes running?");
+        return false;
+    }
+    AIBinder_Class* clazz = AIBinder_Class_define("android.hardware.weaver.IWeaver", WeaverOnCreate,
+                                                  WeaverOnDestroy, WeaverOnTransact);
+    if (!AIBinder_associateClass(weaver, clazz)) {
+        LINE("  weaver: associateClass mismatch (remote is not IWeaver)");
+        return false;
+    }
+
+    // getConfig() = tx 1 -> WeaverConfig{ int slots; int keySize; int valueSize; }
+    int32_t keySize = 0, slots = 0, valueSize = 0;
+    {
+        AParcel* in = nullptr;
+        if (AIBinder_prepareTransaction(weaver, &in) != STATUS_OK) return false;
+        AParcel* out = nullptr;
+        if (AIBinder_transact(weaver, 1, &in, &out, 0) != STATUS_OK) {
+            LINE("  weaver: getConfig transport error");
+            return false;
+        }
+        AStatus* st = nullptr;
+        AParcel_readStatusHeader(out, &st);
+        bool ok = AStatus_isOk(st);
+        AStatus_delete(st);
+        if (ok) {
+            int32_t psize = 0;
+            AParcel_readInt32(out, &psize);  // parcelable size header
+            AParcel_readInt32(out, &slots);
+            AParcel_readInt32(out, &keySize);
+            AParcel_readInt32(out, &valueSize);
+        }
+        AParcel_delete(out);
+        if (!ok) {
+            LINE("  weaver: getConfig returned an exception");
+            return false;
+        }
+    }
+    LINE("  weaver config: slots=%d keySize=%d valueSize=%d", slots, keySize, valueSize);
+    if (keySize <= 0 || keySize > 128) return false;
+
+    // stretchedLskf = "default-password" zero-padded to 32B; weaverKey = hash[:keySize]
+    std::vector<uint8_t> stretchedLskf(32, 0);
+    const char* dp = "default-password";
+    memcpy(stretchedLskf.data(), dp, strlen(dp));
+    std::vector<uint8_t> weaverKey = personalizedHash("weaver-key", stretchedLskf);
+    weaverKey.resize(keySize);
+    LINE("  weaverKey[:8]=%s (from empty-LSKF)", hex(weaverKey.data(), 8).c_str());
+
+    // read(slotId=0, key) = tx 2 -> WeaverReadResponse{ long timeout; byte[] value; status }
+    AParcel* in = nullptr;
+    if (AIBinder_prepareTransaction(weaver, &in) != STATUS_OK) return false;
+    AParcel_writeInt32(in, 0);  // slotId
+    AParcel_writeByteArray(in, reinterpret_cast<const int8_t*>(weaverKey.data()),
+                           static_cast<int32_t>(weaverKey.size()));
+    AParcel* out = nullptr;
+    if (AIBinder_transact(weaver, 2, &in, &out, 0) != STATUS_OK) {
+        LINE("  weaver: read transport error");
+        return false;
+    }
+    AStatus* st = nullptr;
+    AParcel_readStatusHeader(out, &st);
+    bool ok = AStatus_isOk(st);
+    AStatus_delete(st);
+    if (!ok) {
+        LINE("  weaver: read returned an exception");
+        AParcel_delete(out);
+        return false;
+    }
+    int32_t psize = 0;
+    int64_t timeout = 0;
+    int32_t status = -1;
+    std::vector<uint8_t> value;
+    AParcel_readInt32(out, &psize);                            // parcelable size header
+    AParcel_readInt64(out, &timeout);                          // long timeout
+    AParcel_readByteArray(out, &value, byteArrayAllocator);    // byte[] value
+    AParcel_readInt32(out, &status);                           // WeaverReadStatus enum
+    AParcel_delete(out);
+
+    const char* sname = status == 0   ? "OK"
+                        : status == 1 ? "FAILED"
+                        : status == 2 ? "INCORRECT_KEY"
+                        : status == 3 ? "THROTTLE"
+                                      : "?";
+    LINE("  weaver read slot 0: status=%d(%s) value=%zuB timeout=%lld", status, sname,
+         value.size(), static_cast<long long>(timeout));
+    if (status != 0) return false;
+    LINE("  weaver value[:8]=%s", value.empty() ? "(empty)" : hex(value.data(), 8).c_str());
+    *outValue = std::move(value);
+    return true;
 }
 
 KeyParameter kpEnum(Tag tag, KeyParameterValue v) { return KeyParameter{tag, std::move(v)}; }
@@ -354,6 +488,20 @@ int main() {
              dirReadable("/data/system_de/0") ? "READABLE (user-0 DE unlocked)" : "locked");
     } else if (sysOk) {
         LINE("user-0 DE key dir not present/readable at /data/misc/vold/user_keys/de/0");
+    }
+
+    // CE stage 1: read Weaver slot 0 with the empty-LSKF-derived key. A status of OK proves
+    // the whole empty-credential derivation (stretchedLskf -> weaverKey) is correct and gives
+    // us the weaver value needed for the synthetic-password unwrap (stages 2-4, next).
+    if (sysOk && dirReadable("/data/system_de/0")) {
+        LINE("--- CE stage 1: Weaver slot 0 read ---");
+        std::vector<uint8_t> weaverValue;
+        if (readWeaverSlot0(&weaverValue)) {
+            LINE("CE stage 1 OK: weaver slot 0 unlocked (%zuB) - empty-LSKF derivation correct",
+                 weaverValue.size());
+        } else {
+            LINE("CE stage 1: weaver read did not return OK (see status above)");
+        }
     }
 
     LINE("===== de_keyinstall done =====");
