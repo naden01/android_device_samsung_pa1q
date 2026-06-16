@@ -265,6 +265,43 @@ std::vector<uint8_t> emptyStretchedLskf() {
     return s;
 }
 
+// LockPatternUtils credential types.
+enum { CRED_NONE = -1, CRED_PATTERN = 1, CRED_PIN = 3, CRED_PASSWORD = 4 };
+
+// Parse /data/system_de/0/spblob/<handle>.pwd (A16 PasswordData, big-endian):
+//   int credentialType; byte scryptLogN; byte scryptLogR; byte scryptLogP;
+//   int saltLength; byte[] salt; int gatekeeperHandleLength; byte[] gkHandle;
+//   [int pinLength]  (Samsung auto-confirm extension; ignored)
+// Returns false if the .pwd is absent (=> empty LSKF, no credential).
+bool readPasswordData(const std::string& handleHex, int32_t* credType, int* logN, int* logR,
+                      int* logP, std::vector<uint8_t>* salt) {
+    std::vector<uint8_t> d;
+    if (!readFile("/data/system_de/0/spblob/" + handleHex + ".pwd", &d) || d.size() < 11)
+        return false;
+    auto be32 = [&](size_t o) -> int32_t {
+        return (int32_t)(((uint32_t)d[o] << 24) | ((uint32_t)d[o + 1] << 16) |
+                         ((uint32_t)d[o + 2] << 8) | (uint32_t)d[o + 3]);
+    };
+    *credType = be32(0);
+    *logN = d[4];
+    *logR = d[5];
+    *logP = d[6];
+    int32_t saltLen = be32(7);
+    if (saltLen < 0 || (size_t)(11 + saltLen) > d.size()) return false;
+    salt->assign(d.begin() + 11, d.begin() + 11 + saltLen);
+    return true;
+}
+
+// stretchLskf for a real credential: scrypt(credential, salt, N=1<<logN, r=1<<logR, p=1<<logP)
+// -> 32B (A16 LSS SyntheticPasswordCrypto/PasswordData; STRETCHED_LSKF_LENGTH=32).
+bool scryptStretch(const std::string& credential, const std::vector<uint8_t>& salt, int logN,
+                   int logR, int logP, std::vector<uint8_t>* out) {
+    out->assign(32, 0);
+    uint64_t N = 1ull << logN, r = 1ull << logR, p = 1ull << logP;
+    return EVP_PBE_scrypt(credential.data(), credential.size(), salt.data(), salt.size(), N, r, p,
+                          64ull * 1024 * 1024, out->data(), 32) == 1;
+}
+
 // Software AES-256-GCM decrypt (libcrypto) of [ct||16B tag] with a 32B key + 12B IV.
 // Used for the SP blob INNER layer (SyntheticPasswordCrypto.decrypt - not keystore-backed).
 bool swGcmDecrypt(const std::vector<uint8_t>& key32, const std::vector<uint8_t>& iv12,
@@ -330,7 +367,8 @@ binder_status_t WeaverOnTransact(AIBinder* /*b*/, transaction_code_t /*code*/,
 //   weaverKey     = personalizedHash("weaver-key", stretchedLskf)[:keySize]
 //   read(slot 0, weaverKey) -> WeaverReadResponse{ long timeout; byte[] value; status }
 // Returns true + the weaver value on WeaverReadStatus.OK(0).
-bool readWeaverSlot(int slot, std::vector<uint8_t>* outValue) {
+bool readWeaverSlot(int slot, const std::vector<uint8_t>& stretchedLskf,
+                    std::vector<uint8_t>* outValue) {
     ::ndk::SpAIBinder wb(AServiceManager_getService("android.hardware.weaver.IWeaver/default"));
     AIBinder* weaver = wb.get();
     if (weaver == nullptr) {
@@ -375,13 +413,11 @@ bool readWeaverSlot(int slot, std::vector<uint8_t>* outValue) {
     LINE("  weaver config: slots=%d keySize=%d valueSize=%d", slots, keySize, valueSize);
     if (keySize <= 0 || keySize > 128) return false;
 
-    // stretchedLskf = "default-password" zero-padded to 32B; weaverKey = hash[:keySize]
-    std::vector<uint8_t> stretchedLskf(32, 0);
-    const char* dp = "default-password";
-    memcpy(stretchedLskf.data(), dp, strlen(dp));
+    // weaverKey = personalizedHash("weaver-key", stretchedLskf)[:keySize]. stretchedLskf is the
+    // empty-LSKF "default-password" pad OR scrypt(PIN/password) - computed by the caller.
     std::vector<uint8_t> weaverKey = personalizedHash("weaver-key", stretchedLskf);
     weaverKey.resize(keySize);
-    LINE("  weaverKey[:8]=%s (from empty-LSKF)", hex(weaverKey.data(), 8).c_str());
+    LINE("  weaverKey[:8]=%s", hex(weaverKey.data(), 8).c_str());
 
     // read(slotId=0, key) = tx 2 -> WeaverReadResponse{ long timeout; byte[] value; status }
     AParcel* in = nullptr;
@@ -594,7 +630,7 @@ bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string&
 // persistent.sqlite) and the spblob path is built from the discovered protector handle.
 bool unwrapSyntheticPassword(const std::shared_ptr<IKeyMintDevice>& km,
                              const std::vector<uint8_t>& weaverValue, const std::string& handleHex,
-                             std::vector<uint8_t>* sp) {
+                             const std::vector<uint8_t>& stretchedLskf, std::vector<uint8_t>* sp) {
     std::vector<uint8_t> spKeyBlob;
     if (!getSpKeystoreBlob(handleHex, &spKeyBlob) || spKeyBlob.empty()) {
         LINE("  SP keystore key (synthetic_password_%s) not found in persistent.sqlite",
@@ -611,7 +647,7 @@ bool unwrapSyntheticPassword(const std::shared_ptr<IKeyMintDevice>& km,
     LINE("  spblob: %zuB version=%d protectorType=%d", spblob.size(), spblob[0], spblob[1]);
     std::vector<uint8_t> mContent(spblob.begin() + 2, spblob.end());
 
-    std::vector<uint8_t> protectorSecret = emptyStretchedLskf();  // 32B
+    std::vector<uint8_t> protectorSecret = stretchedLskf;                    // 32B (empty or scrypt)
     std::vector<uint8_t> wpw = personalizedHash("weaver-pwd", weaverValue);  // 64B
     protectorSecret.insert(protectorSecret.end(), wpw.begin(), wpw.end());   // 96B
 
@@ -696,7 +732,9 @@ static bool dirReadable(const char* path) {
     return true;
 }
 
-int main() {
+int main(int argc, char** argv) {
+    // Optional arg: the lockscreen credential (PIN/password). Empty => empty-LSKF path.
+    std::string pin = (argc > 1 && argv[1] != nullptr) ? std::string(argv[1]) : std::string();
     LINE("===== de_keyinstall start =====");
 
     ABinderProcess_setThreadPoolMaxThreadCount(1);
@@ -743,11 +781,39 @@ int main() {
                  handle.empty() ? "?" : handle.c_str(), slot);
         } else {
             LINE("--- CE: protector %s, weaver slot %d ---", handle.c_str(), slot);
+            // stretchedLskf: empty-LSKF default-password pad, OR scrypt(credential) when the
+            // protector has a PasswordData (.pwd) with a real credential type (PIN/password).
+            std::vector<uint8_t> stretchedLskf;
+            int32_t credType = CRED_NONE;
+            int lN = 0, lR = 0, lP = 0;
+            std::vector<uint8_t> salt;
+            bool havePwd = readPasswordData(handle, &credType, &lN, &lR, &lP, &salt);
+            bool ceOk = true;
+            if (!havePwd || credType == CRED_NONE) {
+                stretchedLskf = emptyStretchedLskf();
+                LINE("  credential: NONE (empty LSKF)");
+            } else if (credType == CRED_PATTERN) {
+                LINE("CE: protector is PATTERN-based (type=1) - not supported, skipping CE.");
+                ceOk = false;
+            } else if (pin.empty()) {
+                LINE("CE: protector is credential-protected (type=%d, %s) - PIN/password REQUIRED.",
+                     credType, credType == CRED_PIN ? "PIN" : "password");
+                LINE("    Run in the TWRP terminal:   password <your-PIN>");
+                ceOk = false;
+            } else if (!scryptStretch(pin, salt, lN, lR, lP, &stretchedLskf)) {
+                LINE("CE: scrypt(credential) failed");
+                ceOk = false;
+            } else {
+                LINE("  credential type=%d scrypt(N=%d,r=%d,p=%d) stretchedLskf[:8]=%s", credType,
+                     1 << lN, 1 << lR, 1 << lP, hex(stretchedLskf.data(), 8).c_str());
+            }
             std::vector<uint8_t> weaverValue;
             std::vector<uint8_t> sp;
-            if (!readWeaverSlot(slot, &weaverValue)) {
-                LINE("CE stage 1 failed: weaver read not OK (see status above)");
-            } else if (!unwrapSyntheticPassword(km, weaverValue, handle, &sp)) {
+            if (!ceOk) {
+                // nothing to do - message already printed
+            } else if (!readWeaverSlot(slot, stretchedLskf, &weaverValue)) {
+                LINE("CE stage 1 failed: weaver read not OK (wrong PIN? throttled? see status above)");
+            } else if (!unwrapSyntheticPassword(km, weaverValue, handle, stretchedLskf, &sp)) {
                 LINE("CE stage 2 failed: SP blob unwrap (see status above)");
             } else if (!installCeKey(km, sp)) {
                 LINE("CE stage 3+4 failed: fbe-key / CE install (see status above)");
