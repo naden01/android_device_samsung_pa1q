@@ -143,6 +143,15 @@ bool readFile(const std::string& path, std::vector<uint8_t>* out) {
     return n >= 0;
 }
 
+// Write data to path with the given mode (tmpfs SP cache). Best-effort.
+bool writeFileMode(const std::string& path, const std::vector<uint8_t>& data, int mode) {
+    int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
+    if (fd < 0) return false;
+    ssize_t w = write(fd, data.data(), data.size());
+    close(fd);
+    return w == static_cast<ssize_t>(data.size());
+}
+
 std::string hex(const uint8_t* p, size_t n) {
     static const char* d = "0123456789abcdef";
     std::string s;
@@ -781,43 +790,56 @@ int main(int argc, char** argv) {
                  handle.empty() ? "?" : handle.c_str(), slot);
         } else {
             LINE("--- CE: protector %s, weaver slot %d ---", handle.c_str(), slot);
-            // stretchedLskf: empty-LSKF default-password pad, OR scrypt(credential) when the
-            // protector has a PasswordData (.pwd) with a real credential type (PIN/password).
-            std::vector<uint8_t> stretchedLskf;
-            int32_t credType = CRED_NONE;
-            int lN = 0, lR = 0, lP = 0;
-            std::vector<uint8_t> salt;
-            bool havePwd = readPasswordData(handle, &credType, &lN, &lR, &lP, &salt);
-            bool ceOk = true;
-            if (!havePwd || credType == CRED_NONE) {
-                stretchedLskf = emptyStretchedLskf();
-                LINE("  credential: NONE (empty LSKF)");
-            } else if (credType == CRED_PATTERN) {
-                LINE("CE: protector is PATTERN-based (type=1) - not supported, skipping CE.");
-                ceOk = false;
-            } else if (pin.empty()) {
-                LINE("CE: protector is credential-protected (type=%d, %s) - PIN/password REQUIRED.",
-                     credType, credType == CRED_PIN ? "PIN" : "password");
-                LINE("    Run in the TWRP terminal:   password <your-PIN>");
-                ceOk = false;
-            } else if (!scryptStretch(pin, salt, lN, lR, lP, &stretchedLskf)) {
-                LINE("CE: scrypt(credential) failed");
-                ceOk = false;
-            } else {
-                LINE("  credential type=%d scrypt(N=%d,r=%d,p=%d) stretchedLskf[:8]=%s", credType,
-                     1 << lN, 1 << lR, 1 << lP, hex(stretchedLskf.data(), 8).c_str());
-            }
-            std::vector<uint8_t> weaverValue;
             std::vector<uint8_t> sp;
-            if (!ceOk) {
-                // nothing to do - message already printed
-            } else if (!readWeaverSlot(slot, stretchedLskf, &weaverValue)) {
-                LINE("CE stage 1 failed: weaver read not OK (wrong PIN? throttled? see status above)");
-            } else if (!unwrapSyntheticPassword(km, weaverValue, handle, stretchedLskf, &sp)) {
-                LINE("CE stage 2 failed: SP blob unwrap (see status above)");
+            // FAST PATH: a cached synthetic password from a successful unlock earlier this boot
+            // (/tmp/.ce_sp, tmpfs, root-only, wiped on reboot). Lets a remount after a TWRP GUI
+            // unmount restore CE with NO credential and NO weaver round-trip.
+            if (readFile("/tmp/.ce_sp", &sp) && sp.size() == 128) {
+                LINE("  CE: using cached synthetic password (/tmp/.ce_sp) - no credential needed");
+            } else {
+                sp.clear();
+                // stretchedLskf: empty-LSKF default-password pad, OR scrypt(credential) when the
+                // protector has a PasswordData (.pwd) with a real credential (PIN/password).
+                std::vector<uint8_t> stretchedLskf;
+                int32_t credType = CRED_NONE;
+                int lN = 0, lR = 0, lP = 0;
+                std::vector<uint8_t> salt;
+                bool havePwd = readPasswordData(handle, &credType, &lN, &lR, &lP, &salt);
+                bool ceOk = true;
+                if (!havePwd || credType == CRED_NONE) {
+                    stretchedLskf = emptyStretchedLskf();
+                    LINE("  credential: NONE (empty LSKF)");
+                } else if (credType == CRED_PATTERN) {
+                    LINE("CE: protector is PATTERN-based (type=1) - not supported, skipping CE.");
+                    ceOk = false;
+                } else if (pin.empty()) {
+                    LINE("CE: protector is credential-protected (type=%d, %s) - PIN/password REQUIRED.",
+                         credType, credType == CRED_PIN ? "PIN" : "password");
+                    LINE("    Run in the TWRP terminal:   password <your-PIN>");
+                    ceOk = false;
+                } else if (!scryptStretch(pin, salt, lN, lR, lP, &stretchedLskf)) {
+                    LINE("CE: scrypt(credential) failed");
+                    ceOk = false;
+                } else {
+                    LINE("  credential type=%d scrypt(N=%d,r=%d,p=%d) stretchedLskf[:8]=%s", credType,
+                         1 << lN, 1 << lR, 1 << lP, hex(stretchedLskf.data(), 8).c_str());
+                }
+                std::vector<uint8_t> weaverValue;
+                if (ceOk && readWeaverSlot(slot, stretchedLskf, &weaverValue) &&
+                    unwrapSyntheticPassword(km, weaverValue, handle, stretchedLskf, &sp)) {
+                    /* sp is now set from the credential path */
+                } else {
+                    sp.clear();
+                    if (ceOk)
+                        LINE("CE: weaver/SP unwrap failed (wrong PIN/password? throttled? see above)");
+                }
+            }
+            if (sp.empty()) {
+                // CE not unlocked (no credential / wrong / pattern) - message already printed
             } else if (!installCeKey(km, sp)) {
                 LINE("CE stage 3+4 failed: fbe-key / CE install (see status above)");
             } else {
+                writeFileMode("/tmp/.ce_sp", sp, 0600);  // cache SP for no-credential remounts
                 int mfd = open("/data/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
                 bool dataOpen = mfd >= 0;
                 if (mfd >= 0) close(mfd);

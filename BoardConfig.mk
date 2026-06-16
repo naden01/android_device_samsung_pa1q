@@ -106,36 +106,26 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# CRYPTO RE-ENABLED for the FBE/CE work (WIP32). We need TWRP's built-in FBE decrypt
-# code (the "Decrypt Data" button / `twrp decrypt <pw>` command) because it implements
-# the per-file FBE key install + synthetic-password derivation, and the A16 vdc no
-# longer exposes the FBE key ops (unlock_user_key/unlockCeStorage = "Raw commands are no
-# longer supported"; only mountFstab/init_user0 remain). We mounted only the metadata
-# (dm-default-key) layer so far - DE *and* CE per-file FBE are still locked (/data/data
-# and even /data/misc, /data/system_de show encrypted names).
-#
-# The logo hang these flags caused before is fixed NOT by disabling crypto but by
-# RE-ENABLING the on-boot auto-start of decrypt.sh (see init.recovery.qcom.rc): TWRP's
-# startup FBE path does waitForService(KeyMint), and our A16 stack now brings KeyMint up
-# early so that wait COMPLETES instead of blocking on the SIGSEGV-looping A12 keystore2.
-# Auto-start is safe again because decrypt.sh is non-destructive (snapshots + restores
-# the pristine metadata key, so Android still boots).
-#
-# TW_INCLUDE_FBE_METADATA_DECRYPT stays OFF: the metadata layer is mounted by our own
-# A16 vold (decrypt.sh); TWRP must not also try it. The other flags ON give us the FBE
-# decrypt machinery for the CE step.
-#
-# KNOWN RISK being tested: TWRP 12.1's FBE/synthetic-password code is Android-12 era and
-# may not parse Android-16's FBE key + spblob format (likely why the Decrypt button asks
-# for a password and fails even though no lockscreen credential is set). The recovery.log
-# from a manual `twrp decrypt ""` attempt will show the exact failure -> decide patch vs
-# A16 IVold client.
-#
-# IMPORTANT: these are -D compile flags -> a CLEAN recovery build is REQUIRED, or a
-# stale partitionmanager.o is reused and the change silently has no effect.
-TW_INCLUDE_CRYPTO := true
-TW_INCLUDE_CRYPTO_FBE := true
-BOARD_USES_QCOM_FBE_DECRYPTION := true
+# CRYPTO DISABLED (WIP59). The self-contained A16 decrypt stack now does EVERYTHING, so
+# TWRP's own Android-12-era FBE code is dead weight:
+#   - decrypt.sh mounts the metadata (dm-default-key) layer via our own A16 vold,
+#   - de_keyinstall installs the systemwide + user-0 DE and the user-0 CE keys,
+#   - the `password` helper handles a real lockscreen PIN/password (scrypt -> weaver -> SP),
+#   - remount_watcher re-mounts /data after a TWRP GUI unmount, no reboot.
+# Leaving TWRP crypto ON only HURT: its startup FBE path did waitForService(KeyMint) and
+# stalled the boot/logo (previously worked around by the early auto-start), and it drew a
+# broken "Decrypt Data" button/page that cannot parse A16 keys. Turning these OFF:
+#   * faster TWRP init - no crypto init, no waitForService(KeyMint) stall,
+#   * removes the dead "Decrypt Data" button/page (the crypto UI is no longer compiled in),
+#   * changes NOTHING about our decrypt - it never used TWRP's crypto.
+# decrypt.sh still auto-starts on boot and mounts /data, so the partition shows mounted in
+# TWRP (there may be a brief window at startup where /data reads as unmounted until decrypt.sh
+# runs - TWRP never auto-formats, so this is cosmetic).
+# IMPORTANT: these are -D compile flags -> a CLEAN recovery build is REQUIRED, or a stale
+# partitionmanager.o is reused and the change silently has no effect.
+TW_INCLUDE_CRYPTO := false
+TW_INCLUDE_CRYPTO_FBE := false
+BOARD_USES_QCOM_FBE_DECRYPTION := false
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
 
