@@ -233,8 +233,12 @@ service decrypt-vold /system/bin/hal_run.sh /decrypt/system/bin/vold --blkid_con
 # IWeaver registers. It MUST have its stock `hermes_secnvm` control socket or the secnvm
 # service thread exits and stops the whole daemon ("server socket fail -1 -> stop the
 # daemon"). Run as root (proven live - opens /dev/k250a, full caps) through hal_run.sh.
-# Started by decrypt.sh after /data is mounted (its gatekeeper dir lives on /data) + TEE up.
-service decrypt-hermes /system/bin/hal_run.sh /vendor/bin/hermesd /data/vendor/gatekeeper
+# Gatekeeper working dir = a TMPFS path (/tmp/hermes_gk), NOT /data/vendor/gatekeeper: we only
+# do read-only Weaver verifies (no persistent gatekeeper NVM needed), and a tmpfs dir lets
+# hermes start EARLY (decrypt.sh starts it right after qseecomd, parallel with the keymint TA)
+# without waiting for /data/vendor to be DE-unlocked - which also kills the old chdir-fail +
+# init-restart race. Verified live 2026-06-16: hermesd registers IWeaver with /tmp/hermes_gk.
+service decrypt-hermes /system/bin/hal_run.sh /vendor/bin/hermesd /tmp/hermes_gk
     socket hermes_secnvm stream 660 system system
     class core
     user root
