@@ -202,34 +202,6 @@ n=0; while [ "$n" -lt 48 ]; do
     n=$((n + 1)); sleep 0.25
 done
 
-# === TEMP SPU-HYPOTHESIS TEST (WIP51 - REVERT AFTER) ========================
-# Bring the Samsung SPU (SPSS secure coprocessor) UP before the hwvault/skeymast TAs
-# cold-load, to test whether skeymast's ~43s init is an SPU-probe timeout. The SPU is
-# absent in recovery only because spss_utils.ko is not auto-loaded; loading it + starting
-# the spss remoteproc boots spss1p.mdt (verified live: PBL_DONE/SW_INIT_DONE/attached).
-# RISK: an UNSERVICED SPU watchdog hard-resets the device after a while. GUARD: a one-shot
-# marker on /metadata, SET BEFORE the risky op, so a reset cannot bootloop recovery - the
-# next boot sees the marker, skips the SPU, and decrypts normally. The result is written to
-# /metadata (survives the reset). To re-run: `rm /metadata/spu_test.done`.
-if [ ! -e /metadata/spu_test.done ]; then
-    : > /metadata/spu_test.done
-    echo "[SPU test] loading spss_utils.ko + starting SPU (uptime $(cat /proc/uptime))" | tee /metadata/spu_test.log
-    insmod /vendor/lib/modules/spss_utils.ko 2>&1
-    SPSS=""
-    for r in /sys/class/remoteproc/remoteproc*; do
-        grep -qi spss "$r/name" 2>/dev/null && SPSS="$r" && break
-    done
-    if [ -n "$SPSS" ]; then
-        echo start > "$SPSS/state" 2>&1
-        sleep 2
-        st=$(cat "$SPSS/state" 2>/dev/null); fw=$(cat "$SPSS/firmware" 2>/dev/null)
-        echo "[SPU test] state=$st fw=$fw" | tee -a /metadata/spu_test.log
-    else
-        echo "[SPU test] no spss remoteproc found" | tee -a /metadata/spu_test.log
-    fi
-fi
-# === END TEMP SPU TEST =====================================================
-
 # Start Weaver (hermes) NOW - early, in parallel with the keymint TA warm-up below, so its
 # hwvault TA cold-loads CONCURRENTLY with skeymast instead of serially after the mount. Uses a
 # tmpfs gatekeeper dir (/tmp/hermes_gk) so it does NOT need /data/vendor (DE-locked until
@@ -261,19 +233,6 @@ done
 echo "keymint TA warm after ~${w}s (handshake $([ "$w" -lt 90 ] && echo seen || echo TIMEOUT))"
 # TA-SPEED EXPERIMENT readout: confirm which build_type the trustlet parsed from the fingerprint
 echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build_type->data : [a-z]+" | tail -1)"
-# === TEMP SPU-HYPOTHESIS readout (WIP51) - persist the decisive metric to /metadata =====
-# skeymast cold-init time WITH the SPU up. If ~43s -> SPU is NOT the cause (abandon). If a
-# few seconds -> SPU is the cause (invest in the full SPU userspace stack). Also record the
-# hwvault SPU wrap result (was strongbox_wrap err -1000 with the SPU down -> 0 if usable).
-spu_now=$(for r in /sys/class/remoteproc/remoteproc*; do grep -qi spss "$r/name" 2>/dev/null && cat "$r/state" 2>/dev/null && break; done)
-hv_spu=$(logcat -d -b all 2>/dev/null | grep -E "wrap_using_spu|strongbox_wrap" | tail -1)
-{
-  echo "keymint_TA_warm=~${w}s  (was ~43s with SPU down)"
-  echo "skeymast_tz_window: $(logcat -d -b all 2>/dev/null | grep -E "keymint_tee.*tz open success|tz_app_init:131" | head -2 | tr '\n' '|')"
-  echo "spu_state_at_keymint=${spu_now:-<none>}"
-  echo "hwvault_spu=${hv_spu:-<no spu log>}"
-} >> /metadata/spu_test.log 2>/dev/null
-echo "[SPU test] metric written to /metadata/spu_test.log"
 start_svc decrypt-vold
 wait_run decrypt-vold
 
