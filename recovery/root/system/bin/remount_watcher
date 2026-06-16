@@ -1,0 +1,29 @@
+#!/system/bin/sh
+# Auto-remount watcher. Started by decrypt.sh ONLY after the FIRST successful /data mount, so
+# every boot-time mount failure already in recovery.log is in the baseline and ignored.
+#
+# TWRP 12.1 cannot mount the A16 FBE /data itself, so once the user unmounts /data via the GUI
+# they normally can't get it back without a reboot. This watcher fixes that: when /data is
+# actually unmounted AND the user then presses Mount in the GUI (TWRP fails and logs
+# "Unable to mount '/data'" / "Failed to mount '/data'"), we remount the persistent
+# dm-default-key device and re-install the FBE keys (remount_data). A busy/failed UNMOUNT
+# leaves /data mounted, so it never triggers a remount.
+RLOG=/tmp/recovery.log
+PAT="Unable to mount '/data'|Failed to mount '/data'"
+
+count() { c=$(grep -cE "$PAT" "$RLOG" 2>/dev/null); [ -z "$c" ] && c=0; echo "$c"; }
+base=$(count)
+
+while true; do
+    sleep 2
+    if grep -qE " /data " /proc/mounts 2>/dev/null; then
+        base=$(count)        # mounted -> only failures AFTER a real unmount should count
+        continue
+    fi
+    # /data is unmounted - did the user just press Mount (a NEW mount-fail line)?
+    cur=$(count)
+    if [ "$cur" -gt "$base" ]; then
+        /system/bin/remount_data >/tmp/remount_watcher.log 2>&1
+        base=$(count)
+    fi
+done

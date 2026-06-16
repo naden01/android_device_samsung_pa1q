@@ -391,4 +391,14 @@ if [ -e "$PSNAP/.captured" ]; then
 else
     echo "WARN: no pristine snapshot captured - cannot guarantee a clean Android boot"
 fi
+
+# Auto-remount watcher: start it ONLY now, after the first successful mount, so it baselines
+# out every boot-time mount failure already in recovery.log. From here on, if the user unmounts
+# /data via the TWRP GUI and then presses Mount (which TWRP can't do for A16 FBE), the watcher
+# remounts the persistent dm-default-key device + re-installs the FBE keys (CE from the cached
+# SP if it was unlocked). No reboot needed. See remount_watcher / remount_data.
+if grep -qE " /data " /proc/mounts 2>/dev/null; then
+    setprop ctl.start decrypt-watcher
+    echo "remount watcher started (decrypt-watcher)"
+fi
 echo "===== decrypt done ====="

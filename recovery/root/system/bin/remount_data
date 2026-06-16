@@ -1,0 +1,31 @@
+#!/system/bin/sh
+# Re-mount /data after a TWRP GUI unmount - no reboot needed. The dm-default-key device
+# (mapper/userdata) SURVIVES the unmount (umount drops only the f2fs superblock, not the dm
+# device), so we just remount the f2fs on it (inlinecrypt is required for the HW-wrapped FBE
+# keys) and re-install the FBE keys via de_keyinstall: systemwide+user-0 DE always, and user-0
+# CE automatically if its synthetic password was cached on an earlier unlock this boot
+# (/tmp/.ce_sp). Proven live 2026-06-17. If CE was never unlocked, run `password <cred>` after.
+DEV=/dev/block/mapper/userdata
+
+if grep -qE " /data " /proc/mounts 2>/dev/null; then
+    exit 0   # already mounted - nothing to do
+fi
+if [ ! -e "$DEV" ]; then
+    echo "remount_data: $DEV missing (dm-default-key gone) - a reboot is needed for full mountFstab"
+    exit 1
+fi
+
+mount -t f2fs -o rw,inlinecrypt,discard "$DEV" /data 2>/dev/null
+if ! grep -qE " /data " /proc/mounts 2>/dev/null; then
+    echo "remount_data: f2fs remount of $DEV failed"
+    exit 1
+fi
+
+SYS=/decrypt
+LK="$SYS/system/bin/bootstrap/linker64"
+LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
+if [ -e "$LK" ]; then
+    ( export LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system
+      exec "$LK" /system/bin/de_keyinstall ) >/tmp/remount.log 2>&1
+fi
+echo "remount_data: /data remounted; fscrypt keyring=$(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"

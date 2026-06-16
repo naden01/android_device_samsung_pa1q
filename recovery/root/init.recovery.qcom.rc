@@ -246,6 +246,19 @@ service decrypt-hermes /system/bin/hal_run.sh /vendor/bin/hermesd /tmp/hermes_gk
     seclabel u:r:recovery:s0
     disabled
 
+# Auto-remount watcher: TWRP 12.1 cannot mount the A16 FBE /data, so once the user unmounts
+# /data via the GUI they normally can't get it back without a reboot. This long-running loop
+# (remount_watcher) brings it back: when /data is unmounted AND the user presses Mount in the
+# GUI, it remounts the persistent dm-default-key device + re-installs the FBE keys. decrypt.sh
+# starts it (ctl.start) ONLY after the first successful mount, so boot-time mount failures are
+# baselined out. Root for mount + the A16 bootstrap-linker de_keyinstall.
+service decrypt-watcher /system/bin/remount_watcher
+    class main
+    user root
+    group root system
+    seclabel u:r:recovery:s0
+    disabled
+
 
    
 
