@@ -147,7 +147,25 @@ RP=/system/bin/resetprop
 # is on. Unset in recovery -> vold falls back to legacy(v1) and bails (length 0).
 "$RP" ro.crypto.dm_default_key.options_format.version 2 2>/dev/null || setprop ro.crypto.dm_default_key.options_format.version 2
 "$RP" ro.crypto.set_dun true 2>/dev/null || setprop ro.crypto.set_dun true
+# TA-SPEED EXPERIMENT (WIP50): the skeymast trustlet derives its build_type by PARSING the
+# `type` field of ro.build.fingerprint (confirmed in the .mbn: "build_type->data : %s" +
+# "Failed to get build type"; libskeymint10device.so reads ro.build.fingerprint). In the TWRP
+# env that fingerprint is the eng/test-keys TWRP one (".../:eng/test-keys") -> the TA runs its
+# slow ENG init path (~43s cold-load). The device's REAL ROM is user/release-keys. Feed the
+# genuine device fingerprint so the TA parses build_type=user and (hypothesis) takes the fast
+# production init. Lock-state enforcement is keyed on ro.boot.verifiedbootstate / SetRot
+# boot_state_color (UNTOUCHED here), not build_type, so the lenient unlocked-device key path
+# (begin ret 0 despite compromized) should be preserved. Also fix the bogus 2099-12-31
+# security_patch placeholders to the real 2026-04-05 (libspukeymint.so reads both). REVERT this
+# block if /data stops mounting (user TA path is stricter) or the TA time is unchanged (then the
+# 43s is the unlock-state floor, not build_type).
+"$RP" ro.build.fingerprint samsung/pa1qxxx/qssi_64:16/BP4A.251205.006/S931BXXU9CZDP:user/release-keys 2>/dev/null
+"$RP" ro.build.type user 2>/dev/null
+"$RP" ro.build.tags release-keys 2>/dev/null
+"$RP" ro.build.version.security_patch 2026-04-05 2>/dev/null
+"$RP" ro.vendor.build.security_patch 2026-04-05 2>/dev/null
 echo "props: release=$(getprop ro.build.version.release) dm_fmt=$(getprop ro.crypto.dm_default_key.options_format.version) set_dun=$(getprop ro.crypto.set_dun)"
+echo "ta-speed: fp=$(getprop ro.build.fingerprint) type=$(getprop ro.build.type) sec_patch=$(getprop ro.build.version.security_patch)"
 
 # 4. hand /dev/binder to the A16 servicemanager: stop the A12 one (+ A12 keystore2).
 #    ctl.stop leaves them stopped (only crashes auto-restart), so the A16 sm can
@@ -213,6 +231,8 @@ while [ "$w" -lt 90 ]; do
     w=$((w + 1)); sleep 1
 done
 echo "keymint TA warm after ~${w}s (handshake $([ "$w" -lt 90 ] && echo seen || echo TIMEOUT))"
+# TA-SPEED EXPERIMENT readout: confirm which build_type the trustlet parsed from the fingerprint
+echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build_type->data : [a-z]+" | tail -1)"
 start_svc decrypt-vold
 wait_run decrypt-vold
 
