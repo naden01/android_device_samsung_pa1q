@@ -246,11 +246,11 @@ start_svc decrypt-bootctl
 # MUST hit a warm TA. This poll exits the instant the shared-secret handshake completes.
 echo "waiting for KeyMint TA warm-up (shared-secret handshake)..."
 w=0
-while [ "$w" -lt 90 ]; do
+while [ "$w" -lt 300 ]; do
     logcat -d -b all 2>/dev/null | grep -qE "computeSharedSecret: ret 0|Shared secret negotiation concluded" && break
-    w=$((w + 1)); sleep 1
+    w=$((w + 1)); sleep 0.2
 done
-echo "keymint TA warm after ~${w}s (handshake $([ "$w" -lt 90 ] && echo seen || echo TIMEOUT))"
+echo "keymint TA warm after ~$((w / 5))s (handshake $([ "$w" -lt 300 ] && echo seen || echo TIMEOUT))"
 # TA-SPEED EXPERIMENT readout: confirm which build_type the trustlet parsed from the fingerprint
 echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build_type->data : [a-z]+" | tail -1)"
 start_svc decrypt-vold
@@ -295,21 +295,35 @@ if [ ! -e "$PSNAP/.captured" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null;
     touch "$PSNAP/.captured"
     echo "[pristine key snapshot captured -> $PSNAP]"
 fi
+# ROT-CACHE (speed): the current device ROT is STABLE across boots (hardware ROT + fuse
+# state don't change on the same firmware). The probe mountFstab below is a full vold+KeyMint
+# op that runs ONLY to make vold log the current ROT - so cache it on /metadata the first time
+# and skip the probe on every subsequent boot. Cache is invalidated (deleted) after the real
+# mountFstab if /data fails to mount (=> stale ROT, e.g. boot-state changed), so it self-heals.
+ROTCACHE=/metadata/_rot_cache
 if [ -e "$KDIR/rot" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null; then
-    echo "[ROT sync: probe mountFstab to read current device ROT]"
-    lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" >/dev/null 2>&1
-    if ! grep -qE " /data " /proc/mounts 2>/dev/null; then
-        cur=$(logcat -d -b all 2>/dev/null | grep "checkRotStr current rot value" | tail -1 | sed 's/.*value : *//' | tr -dc '0-9a-fA-F')
-        if [ "${#cur}" = "32" ]; then
-            esc=$(echo "$cur" | sed 's/\(..\)/\\x\1/g')
-            [ -e "$KDIR/rot.orig" ] || cp -a "$KDIR/rot" "$KDIR/rot.orig" 2>/dev/null
-            [ -e "$BDIR/rot.orig" ] || cp -a "$BDIR/rot" "$BDIR/rot.orig" 2>/dev/null
-            printf "$esc" > "$KDIR/rot"
-            [ -d "$BDIR" ] && printf "$esc" > "$BDIR/rot"
-            echo "ROT synced to current device value: $cur"
-        else
-            echo "ROT sync: could not parse current ROT (decrypt may fail on checkRotStr)"
+    cur=""
+    if [ -s "$ROTCACHE" ]; then
+        c=$(tr -dc '0-9a-fA-F' < "$ROTCACHE" 2>/dev/null)
+        [ "${#c}" = "32" ] && cur="$c" && echo "[ROT sync: cached value $cur - probe skipped]"
+    fi
+    if [ -z "$cur" ]; then
+        echo "[ROT sync: probe mountFstab to read current device ROT]"
+        lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" >/dev/null 2>&1
+        if ! grep -qE " /data " /proc/mounts 2>/dev/null; then
+            cur=$(logcat -d -b all 2>/dev/null | grep "checkRotStr current rot value" | tail -1 | sed 's/.*value : *//' | tr -dc '0-9a-fA-F')
+            [ "${#cur}" = "32" ] && printf '%s' "$cur" > "$ROTCACHE"
         fi
+    fi
+    if [ "${#cur}" = "32" ]; then
+        esc=$(echo "$cur" | sed 's/\(..\)/\\x\1/g')
+        [ -e "$KDIR/rot.orig" ] || cp -a "$KDIR/rot" "$KDIR/rot.orig" 2>/dev/null
+        [ -e "$BDIR/rot.orig" ] || cp -a "$BDIR/rot" "$BDIR/rot.orig" 2>/dev/null
+        printf "$esc" > "$KDIR/rot"
+        [ -d "$BDIR" ] && printf "$esc" > "$BDIR/rot"
+        echo "ROT set to current device value: $cur"
+    else
+        echo "ROT sync: could not determine current ROT (decrypt may fail on checkRotStr)"
     fi
 fi
 
@@ -318,11 +332,15 @@ fi
 # (verified live: the 4-arg form -> "Raw commands are no longer supported").
 echo "[vdc cryptfs mountFstab - 6 args]"
 lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" 2>&1
-sleep 3
+# mountFstab is synchronous (vdc blocks on vold), so /data is up the instant it returns -
+# poll instead of a fixed sleep 3 (exits in ~ms; bounded fallback for a slow cold mount).
+m=0; while [ "$m" -lt 30 ]; do grep -qE " /data " /proc/mounts 2>/dev/null && break; m=$((m + 1)); sleep 0.1; done
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
-    echo "SUCCESS: /data mounted"; grep -E " /data " /proc/mounts
+    echo "SUCCESS: /data mounted (~$((m * 100))ms)"; grep -E " /data " /proc/mounts
 else
     echo "/data not mounted - check decrypt.log for the vold mountFstab error"
+    # a failed mount with a cached ROT means the cache is stale -> drop it so next boot re-probes
+    rm -f "$ROTCACHE" 2>/dev/null
 fi
 
 # 6a. FBE layer - install the systemwide DE key (next domino after the metadata mount).
