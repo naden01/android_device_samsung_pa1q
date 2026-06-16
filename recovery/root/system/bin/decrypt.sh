@@ -128,7 +128,27 @@ fi
 
 # 3. keystore2 prereqs: DB dir, and it blocks/aborts without boot_completed/apexd
 mkdir -p /tmp/misc/keystore /metadata/keystore /data/vendor/keymaster 2>/dev/null
-# DAK keybox provisioning KeyMint reads (from the stock keymint.rc)
+
+# WIP52: mount the REAL efs + persist (provisioning) at the vendor paths the skeymast TA
+# reads at init. PROVEN via the Android-vs-recovery split: in normal Android the trustlet
+# cold-loads in ~47ms; in TWRP it takes ~43s. The difference is the environment - TWRP does
+# NOT mount efs/persist at /mnt/vendor/* (only an empty tmpfs), so the TA's secure-storage /
+# keybox read at tz_app_init retries/times out (~43s). efs (sda6) holds DAK/GAK_*/SAK_* +
+# attestation blobs; persist (sda5) holds secnvm. Mount READ-ONLY so we never mutate the
+# device's real provisioning. Safe: a plain ext4 RO mount (verified live - no crash, unlike
+# the QCE driver which NoC-faulted). Must be in place BEFORE decrypt-keymint starts below.
+for spec in efs:/mnt/vendor/efs persist:/mnt/vendor/persist; do
+    name=${spec%%:*}; mp=${spec##*:}
+    mkdir -p "$mp" 2>/dev/null
+    if ! grep -q " $mp " /proc/mounts 2>/dev/null; then
+        dev=$(ls /dev/block/by-name/$name /dev/block/bootdevice/by-name/$name 2>/dev/null | head -1)
+        [ -n "$dev" ] && mount -t ext4 -o ro "$dev" "$mp" 2>/dev/null \
+            && echo "efs-prov: mounted $name ($dev) ro -> $mp" \
+            || echo "efs-prov: could not mount $name"
+    fi
+done
+echo "efs-prov: /mnt/vendor/efs/DAK = [$(ls /mnt/vendor/efs/DAK 2>/dev/null | tr '\n' ' ')]"
+# DAK keybox provisioning KeyMint reads (only matters if efs above is NOT the real RO mount)
 mkdir -p /mnt/vendor/efs/DAK 2>/dev/null
 setprop sys.boot_completed 1
 setprop apexd.status activated
