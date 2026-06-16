@@ -218,9 +218,14 @@ wait_run decrypt-apexservice
 
 start_svc decrypt-qseecomd
 n=0; while [ "$n" -lt 48 ]; do
-    logcat -d -s QSEECOMD 2>/dev/null | grep -q "QSEECOM DAEMON RUNNING" && { echo "qseecomd: TEE up"; break; }
+    # MUST use `-b all` (like the keymint poll below) - `logcat -d -s QSEECOMD` silently
+    # matches NOTHING here, so this poll used to run to its full 12s timeout even though
+    # qseecomd prints "QSEECOM DAEMON RUNNING" within ~3.5s. That dead 12s was the single
+    # biggest chunk of the in-GUI decrypt latency (WIP54).
+    logcat -d -b all 2>/dev/null | grep -q "QSEECOM DAEMON RUNNING" && { echo "qseecomd: TEE up (~$((n * 250))ms)"; break; }
     n=$((n + 1)); sleep 0.25
 done
+[ "$n" -ge 48 ] && echo "qseecomd: poll TIMEOUT (proceeding anyway)"
 
 # Start Weaver (hermes) NOW - early, in parallel with the keymint TA warm-up below, so its
 # hwvault TA cold-loads CONCURRENTLY with skeymast instead of serially after the mount. Uses a
