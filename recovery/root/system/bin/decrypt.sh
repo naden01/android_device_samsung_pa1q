@@ -154,45 +154,58 @@ echo "props: release=$(getprop ro.build.version.release) dm_fmt=$(getprop ro.cry
 #    claim the context-manager slot.
 setprop ctl.stop keystore2
 setprop ctl.stop servicemanager
-sleep 2
+# poll until the A12 servicemanager is actually gone (frees /dev/binder) - not a fixed sleep
+n=0; while [ "$n" -lt 30 ] && [ "$(getprop init.svc.servicemanager)" = "running" ]; do
+    n=$((n + 1)); sleep 0.1
+done
 
-# 5. bring up the matched A16 stack in order via init (services + their sockets are
-#    declared in init.recovery.qcom.rc).
+# 5. bring up the matched A16 stack via init. Replaced the conservative fixed `sleep`s with
+#    readiness polls (proceed the instant each service is up) for a faster cold start.
 start_svc() { setprop ctl.start "$1"; echo "ctl.start $1"; }
+# wait (bounded) for an init service to report running
+wait_run() { n=0; while [ "$n" -lt 80 ] && [ "$(getprop init.svc.$1)" != "running" ]; do
+    n=$((n + 1)); sleep 0.1; done; }
 
 start_svc decrypt-servicemanager
-sleep 2
-# apexservice stub - MUST be up before keystore2, which blocks on
-# waitForService("apexservice") during startup (real apexd can't run in recovery).
-# Registers the name + answers getActivePackages() empty so keystore2 finishes init
-# and registers IKeystoreService. Verified live 2026-06-14: that wait was the wall.
+# A16 sm sets servicemanager.ready=true once it owns the context manager - wait on that
+n=0; while [ "$n" -lt 60 ] && [ "$(getprop servicemanager.ready)" != "true" ]; do
+    n=$((n + 1)); sleep 0.1
+done
+echo "sm ready=$(getprop servicemanager.ready) (~$((n * 100))ms)"
+
+# apexservice stub - MUST be up before keystore2 (keystore2 blocks on
+# waitForService("apexservice") during startup).
 start_svc decrypt-apexservice
-sleep 1
+wait_run decrypt-apexservice
+
 start_svc decrypt-qseecomd
-n=0; while [ "$n" -lt 24 ]; do
+n=0; while [ "$n" -lt 48 ]; do
     logcat -d -s QSEECOMD 2>/dev/null | grep -q "QSEECOM DAEMON RUNNING" && { echo "qseecomd: TEE up"; break; }
-    n=$((n + 1)); sleep 0.5
+    n=$((n + 1)); sleep 0.25
 done
+
+# Start Weaver (hermes) NOW - early, in parallel with the keymint TA warm-up below, so its
+# hwvault TA cold-loads CONCURRENTLY with skeymast instead of serially after the mount. Uses a
+# tmpfs gatekeeper dir (/tmp/hermes_gk) so it does NOT need /data/vendor (DE-locked until
+# de_keyinstall runs) - which also kills the old chdir-fail + 5s init-restart race. Only needs
+# qseecomd (TEE) + the eSE, both ready here. IWeaver stays up via its hermes_secnvm socket.
+mkdir -p /tmp/hermes_gk /mnt/vendor/efs/hermes 2>/dev/null
+start_svc decrypt-hermes
+
 start_svc decrypt-keymint
-n=0; while [ "$n" -lt 24 ]; do
+n=0; while [ "$n" -lt 48 ]; do
     logcat -d 2>/dev/null | grep -q "keymint-service: adding" && { echo "keymint registered"; break; }
-    n=$((n + 1)); sleep 0.5
+    n=$((n + 1)); sleep 0.25
 done
+# keystore2's shared-secret handshake triggers the skeymast TA load - start it immediately so
+# the 43s TZ load begins ASAP (no fixed sleep).
 start_svc decrypt-keystore2
-sleep 3
-# bootctl HAL must be registered BEFORE vold: mountFstab unconditionally does
-# waitForService("android.hardware.boot.IBootControl/default") and blocks forever if
-# it's absent (cp_needsCheckpoint, independent of the fstab checkpoint= flag).
+# bootctl HAL must register BEFORE vold (mountFstab waits on IBootControl/default).
 start_svc decrypt-bootctl
-sleep 1
-# WARM UP the KeyMint TA before vold. The skeymast trustlet COLD-loads into TrustZone
-# on the first KeyMint call and that takes ~40s in recovery (eng build, first-time TA
-# load: keymint_swd "Tl initialization done"). keystore2's shared-secret handshake
-# triggers it. vold.mountFstab has a ~35s timeout on its key op, so without this it
-# gives up microseconds before the TA is warm - keystore2 logs "create_operation
-# Success TEE" but vold has already returned "decryptWithKeystoreKey fail" / M02R.
-# Wait (bounded) for the handshake to complete = TA loaded, then vold hits a warm TA
-# and the op returns immediately.
+
+# WAIT for the KeyMint skeymast TA to finish loading into TrustZone (the ~43s cold-load floor;
+# keymint_swd "Tl initialization done"). vold.mountFstab has a ~35s timeout on its key op, so it
+# MUST hit a warm TA. This poll exits the instant the shared-secret handshake completes.
 echo "waiting for KeyMint TA warm-up (shared-secret handshake)..."
 w=0
 while [ "$w" -lt 90 ]; do
@@ -201,7 +214,7 @@ while [ "$w" -lt 90 ]; do
 done
 echo "keymint TA warm after ~${w}s (handshake $([ "$w" -lt 90 ] && echo seen || echo TIMEOUT))"
 start_svc decrypt-vold
-sleep 4
+wait_run decrypt-vold
 
 echo "----- service states -----"
 for s in decrypt-servicemanager decrypt-qseecomd decrypt-keymint decrypt-keystore2 decrypt-bootctl decrypt-vold; do
@@ -284,16 +297,11 @@ fi
 if grep -qE " /data " /proc/mounts 2>/dev/null \
    && [ -e /data/unencrypted/key/keymaster_key_blob ] \
    && [ -x /system/bin/de_keyinstall ]; then
-    # Bring up Weaver (Samsung eSE via hermesd) for the CE layer. The user-0 CE key's
-    # synthetic password is gated by Weaver slot 0; hermesd serves IWeaver from the eSE
-    # (k250a) + TEE hwvault TA - confirmed working in recovery. It needs /data mounted (its
-    # gatekeeper dir) + the TEE up (both true here) + its hermes_secnvm socket (from the rc).
-    mkdir -p /data/vendor/gatekeeper /mnt/vendor/efs/hermes 2>/dev/null
-    start_svc decrypt-hermes
-    sleep 3
+    # Weaver (hermes) was started early (in the stack section, parallel with the keymint TA),
+    # so its hwvault TA is already warming/warm by now. de_keyinstall installs all 3 FBE layers
+    # (systemwide DE + user-0 DE + user-0 CE); the CE step uses IWeaver. Report its state.
     echo "weaver: init.svc.decrypt-hermes=$(getprop init.svc.decrypt-hermes) (running => IWeaver up)"
-
-    echo "----- FBE: install DE keys (systemwide + user-0; CE once de_keyinstall supports it) -----"
+    echo "----- FBE: install DE+CE keys (de_keyinstall: all three layers) -----"
     lrun /system/bin/de_keyinstall 2>&1
     echo "fscrypt keyring now: $(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
 else
