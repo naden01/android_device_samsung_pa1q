@@ -23,6 +23,7 @@ cc_binary {
         "libbinder_ndk",
         "liblog",
         "libcrypto",
+        "libsqlite",
     ],
     static_libs: [
         "android.hardware.security.keymint-V1-ndk_platform",
