@@ -61,6 +61,7 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
+#include <sqlite3.h>
 
 #include <fcntl.h>
 #include <linux/ioctl.h>
@@ -72,6 +73,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -174,6 +176,75 @@ std::vector<uint8_t> secdiscardableAppId(const std::vector<uint8_t>& sd) {
     return personalizedHash("Android secdiscardable SHA512", sd);
 }
 
+// --- self-contained discovery (no hardcoded handle / prebuilt blob) ----------------------
+
+// Current SP protector handle for user 0 = sp-handle (int64 decimal) in locksettings.db,
+// formatted as 16 lowercase hex digits (matches the spblob filename + keystore alias).
+bool getCurrentProtectorHandle(std::string* handleHex) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2("file:/data/system/locksettings.db?mode=ro&immutable=1", &db,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nullptr) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return false;
+    }
+    sqlite3_stmt* stmt = nullptr;
+    bool ok = false;
+    if (sqlite3_prepare_v2(db, "SELECT value FROM locksettings WHERE name='sp-handle' AND user=0",
+                           -1, &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* v = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (v != nullptr) {
+            uint64_t h = strtoull(v, nullptr, 10);
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(h));
+            *handleHex = buf;
+            ok = true;
+        }
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return ok;
+}
+
+// KeyMint blob (subcomponent_type 0) of the keystore2 key "synthetic_password_<handle>"
+// from the user's persistent.sqlite (LOCKSETTINGS namespace). Read-only/immutable: safe
+// because our recovery keystore2 uses /tmp/misc/keystore, not /data/misc/keystore.
+bool getSpKeystoreBlob(const std::string& handleHex, std::vector<uint8_t>* blob) {
+    std::string alias = "synthetic_password_" + handleHex;
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2("file:/data/misc/keystore/persistent.sqlite?mode=ro&immutable=1", &db,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nullptr) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return false;
+    }
+    sqlite3_stmt* stmt = nullptr;
+    bool ok = false;
+    const char* sql =
+        "SELECT b.blob FROM blobentry b JOIN keyentry k ON b.keyentryid=k.id "
+        "WHERE k.alias=? AND b.subcomponent_type=0";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK &&
+        sqlite3_bind_text(stmt, 1, alias.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW) {
+        const uint8_t* p = static_cast<const uint8_t*>(sqlite3_column_blob(stmt, 0));
+        int n = sqlite3_column_bytes(stmt, 0);
+        if (p != nullptr && n > 0) {
+            blob->assign(p, p + n);
+            ok = true;
+        }
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return ok;
+}
+
+// Weaver slot for a protector: <handle>.weaver = [version:1][slot: big-endian int32].
+int getWeaverSlot(const std::string& handleHex) {
+    std::vector<uint8_t> w;
+    if (!readFile("/data/system_de/0/spblob/" + handleHex + ".weaver", &w) || w.size() < 5)
+        return -1;
+    return (w[1] << 24) | (w[2] << 16) | (w[3] << 8) | w[4];
+}
+
 // AParcel byte[] reader (for hand-marshalled IWeaver replies).
 [[maybe_unused]] bool byteArrayAllocator(void* arrayData, int32_t length, int8_t** outBuffer) {
     auto* vec = static_cast<std::vector<uint8_t>*>(arrayData);
@@ -259,7 +330,7 @@ binder_status_t WeaverOnTransact(AIBinder* /*b*/, transaction_code_t /*code*/,
 //   weaverKey     = personalizedHash("weaver-key", stretchedLskf)[:keySize]
 //   read(slot 0, weaverKey) -> WeaverReadResponse{ long timeout; byte[] value; status }
 // Returns true + the weaver value on WeaverReadStatus.OK(0).
-bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
+bool readWeaverSlot(int slot, std::vector<uint8_t>* outValue) {
     ::ndk::SpAIBinder wb(AServiceManager_getService("android.hardware.weaver.IWeaver/default"));
     AIBinder* weaver = wb.get();
     if (weaver == nullptr) {
@@ -315,7 +386,7 @@ bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
     // read(slotId=0, key) = tx 2 -> WeaverReadResponse{ long timeout; byte[] value; status }
     AParcel* in = nullptr;
     if (AIBinder_prepareTransaction(weaver, &in) != STATUS_OK) return false;
-    AParcel_writeInt32(in, 0);  // slotId
+    AParcel_writeInt32(in, slot);  // slotId
     AParcel_writeByteArray(in, reinterpret_cast<const int8_t*>(weaverKey.data()),
                            static_cast<int32_t>(weaverKey.size()));
     AParcel* out = nullptr;
@@ -350,7 +421,7 @@ bool readWeaverSlot0(std::vector<uint8_t>* outValue) {
                         : status == 2 ? "INCORRECT_KEY"
                         : status == 3 ? "THROTTLE"
                                       : "?";
-    LINE("  weaver read slot 0: status=%d(%s) value=%zuB timeout=%lld", status, sname,
+    LINE("  weaver read slot %d: status=%d(%s) value=%zuB timeout=%lld", slot, status, sname,
          value.size(), static_cast<long long>(timeout));
     if (status != 0) return false;
     LINE("  weaver value[:8]=%s", value.empty() ? "(empty)" : hex(value.data(), 8).c_str());
@@ -519,17 +590,20 @@ bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string&
 //   OUTER: KeyMint AES-256-GCM decrypt(mContent) with the keystore2 SP key  -> intermediate
 //   INNER: software AES-256-GCM decrypt(intermediate) with
 //          key = personalizedHash("application-id", protectorSecret)[:32]  -> the SP
-// (Prototype: the keystore2 SP keyblob is read from /tmp/sp_keyblob.bin and the spblob path /
-//  protector handle are hardcoded for this device; will be made self-contained later.)
+// Self-contained: the keystore2 SP keyblob comes from getSpKeystoreBlob(handle) (parses
+// persistent.sqlite) and the spblob path is built from the discovered protector handle.
 bool unwrapSyntheticPassword(const std::shared_ptr<IKeyMintDevice>& km,
-                             const std::vector<uint8_t>& weaverValue, std::vector<uint8_t>* sp) {
+                             const std::vector<uint8_t>& weaverValue, const std::string& handleHex,
+                             std::vector<uint8_t>* sp) {
     std::vector<uint8_t> spKeyBlob;
-    if (!readFile("/tmp/sp_keyblob.bin", &spKeyBlob) || spKeyBlob.empty()) {
-        LINE("  SP keystore keyblob missing (/tmp/sp_keyblob.bin)");
+    if (!getSpKeystoreBlob(handleHex, &spKeyBlob) || spKeyBlob.empty()) {
+        LINE("  SP keystore key (synthetic_password_%s) not found in persistent.sqlite",
+             handleHex.c_str());
         return false;
     }
+    LINE("  SP keystore keyblob: %zuB", spKeyBlob.size());
     std::vector<uint8_t> spblob;
-    if (!readFile("/data/system_de/0/spblob/3be8a78d9bbfa348.spblob", &spblob) ||
+    if (!readFile("/data/system_de/0/spblob/" + handleHex + ".spblob", &spblob) ||
         spblob.size() < 3) {
         LINE("  spblob missing/short");
         return false;
@@ -657,34 +731,33 @@ int main() {
         LINE("user-0 DE key dir not present/readable at /data/misc/vold/user_keys/de/0");
     }
 
-    // CE stage 1: read Weaver slot 0 with the empty-LSKF-derived key. A status of OK proves
-    // the whole empty-credential derivation (stretchedLskf -> weaverKey) is correct and gives
-    // us the weaver value needed for the synthetic-password unwrap (stages 2-4, next).
+    // Layer 3: user-0 CE key (the actual user content). Self-contained: discover the current
+    // SP protector handle + its Weaver slot, then weaver-read -> SP-blob unwrap -> fbe-key ->
+    // install. Empty LSKF (no lockscreen) only; a real PIN/password is not derivable here.
     if (sysOk && dirReadable("/data/system_de/0")) {
-        LINE("--- CE stage 1: Weaver slot 0 read ---");
-        std::vector<uint8_t> weaverValue;
-        if (readWeaverSlot0(&weaverValue)) {
-            LINE("CE stage 1 OK: weaver slot 0 unlocked (%zuB) - empty-LSKF derivation correct",
-                 weaverValue.size());
-            LINE("--- CE stage 2: unwrap synthetic password ---");
-            std::vector<uint8_t> sp;
-            if (unwrapSyntheticPassword(km, weaverValue, &sp)) {
-                LINE("CE stage 2 OK: synthetic password recovered (%zuB) - SP blob cracked", sp.size());
-                LINE("--- CE stage 3+4: fbe-key derive + install user-0 CE key ---");
-                if (installCeKey(km, sp)) {
-                    int mfd = open("/data/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-                    bool dataOpen = mfd >= 0;
-                    if (mfd >= 0) close(mfd);
-                    LINE("CE stage 3+4 DONE: /data/data %s",
-                         dataOpen ? "opens - CE LAYER UNLOCKED" : "open-failed (check)");
-                } else {
-                    LINE("CE stage 3+4 failed (see status above)");
-                }
-            } else {
-                LINE("CE stage 2 failed (see status above)");
-            }
+        std::string handle;
+        int slot = -1;
+        if (getCurrentProtectorHandle(&handle)) slot = getWeaverSlot(handle);
+        if (handle.empty() || slot < 0) {
+            LINE("CE: could not discover SP protector handle/weaver slot (sp-handle=%s slot=%d)",
+                 handle.empty() ? "?" : handle.c_str(), slot);
         } else {
-            LINE("CE stage 1: weaver read did not return OK (see status above)");
+            LINE("--- CE: protector %s, weaver slot %d ---", handle.c_str(), slot);
+            std::vector<uint8_t> weaverValue;
+            std::vector<uint8_t> sp;
+            if (!readWeaverSlot(slot, &weaverValue)) {
+                LINE("CE stage 1 failed: weaver read not OK (see status above)");
+            } else if (!unwrapSyntheticPassword(km, weaverValue, handle, &sp)) {
+                LINE("CE stage 2 failed: SP blob unwrap (see status above)");
+            } else if (!installCeKey(km, sp)) {
+                LINE("CE stage 3+4 failed: fbe-key / CE install (see status above)");
+            } else {
+                int mfd = open("/data/data", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+                bool dataOpen = mfd >= 0;
+                if (mfd >= 0) close(mfd);
+                LINE("CE DONE: user-0 CE key installed; /data/data %s",
+                     dataOpen ? "opens - CE LAYER UNLOCKED" : "open-failed (check)");
+            }
         }
     }
 
