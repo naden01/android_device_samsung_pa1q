@@ -36,6 +36,13 @@ LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/
 # "segfault"; they are fine without the poisoning).
 lrun() { ( export LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system; exec "$LK" "$@" ); }
 
+# Read one key=value from a build.prop file ($1=file, $2=key). Prints the value (everything
+# after the first '='), or nothing if the file/key is absent. build.prop is flat key=value
+# (no sections), so a first-match grep is exact. Used to pull the device's OWN identity off
+# the mounted real system/vendor (see the identity block in section 3a) instead of hardcoding
+# one model - so the SAME script works across the whole S25 line and survives OS updates.
+prop_from() { grep -m1 "^$2=" "$1" 2>/dev/null | cut -d= -f2-; }
+
 # 0. wait (bounded) for TWRP to map the super partitions. This now auto-runs at
 #    boot, so system_a/vendor_a may not exist yet when it first fires.
 n=0
@@ -157,33 +164,46 @@ setprop apexd.status activated
 #     the OS version at init, vold reads ro.crypto at mountFstab). These are write-once
 #     ro. props, so use resetprop to force them in place. Verified live 2026-06-14.
 RP=/system/bin/resetprop
-# anti-rollback: the /data metadata key was created under Android 16 (key os_version
-# 160000). KeyMint's TA refuses a key NEWER than the reported OS - the A12 base reports
-# 120000 -> swd_key_upgrade returns -38 ("key newer than system") and read_key fails.
-# ro.build.version.release feeds os_version; force 16 so 160000 == 160000.
-"$RP" ro.build.version.release 16 2>/dev/null || setprop ro.build.version.release 16
+# anti-rollback: the /data metadata key is created under the device's CURRENT OS version
+# (e.g. Android 16 -> key os_version 160000). KeyMint's TA refuses a key NEWER than the
+# reported OS - the A12 base reports 120000 -> swd_key_upgrade returns -38 ("key newer than
+# system") and read_key fails. ro.build.version.release feeds os_version. Read the REAL
+# release off the device's own mounted system (so an OTA to a newer Android keeps working -
+# a hardcoded "16" would WEDGE the mount after the user updates: key 170000 > reported 16).
+SYS_BP=/decrypt/system/build.prop
+VEN_BP=/vendor/build.prop
+REL=$(prop_from "$SYS_BP" ro.build.version.release)
+if [ -n "$REL" ]; then "$RP" ro.build.version.release "$REL" 2>/dev/null
+else echo "WARN: ro.build.version.release not found in $SYS_BP - leaving as-is"; fi
 # legacy-mode: vold rejects the v2 wrapped-key options ("metadata_encryption options
 # cannot be set in legacy mode") unless the dm-default-key options format is v2 and DUN
-# is on. Unset in recovery -> vold falls back to legacy(v1) and bails (length 0).
+# is on. Unset in recovery -> vold falls back to legacy(v1) and bails (length 0). These two
+# describe the /data ENCRYPTION FORMAT (v2 hardware-wrapped), not the OS - identical across
+# the whole S25 generation and unaffected by OS updates, so they stay fixed (nothing to read).
 "$RP" ro.crypto.dm_default_key.options_format.version 2 2>/dev/null || setprop ro.crypto.dm_default_key.options_format.version 2
 "$RP" ro.crypto.set_dun true 2>/dev/null || setprop ro.crypto.set_dun true
-# TA-SPEED EXPERIMENT (WIP50): the skeymast trustlet derives its build_type by PARSING the
-# `type` field of ro.build.fingerprint (confirmed in the .mbn: "build_type->data : %s" +
-# "Failed to get build type"; libskeymint10device.so reads ro.build.fingerprint). In the TWRP
-# env that fingerprint is the eng/test-keys TWRP one (".../:eng/test-keys") -> the TA runs its
-# slow ENG init path (~43s cold-load). The device's REAL ROM is user/release-keys. Feed the
-# genuine device fingerprint so the TA parses build_type=user and (hypothesis) takes the fast
-# production init. Lock-state enforcement is keyed on ro.boot.verifiedbootstate / SetRot
-# boot_state_color (UNTOUCHED here), not build_type, so the lenient unlocked-device key path
-# (begin ret 0 despite compromized) should be preserved. Also fix the bogus 2099-12-31
-# security_patch placeholders to the real 2026-04-05 (libspukeymint.so reads both). REVERT this
-# block if /data stops mounting (user TA path is stricter) or the TA time is unchanged (then the
-# 43s is the unlock-state floor, not build_type).
-"$RP" ro.build.fingerprint samsung/pa1qxxx/qssi_64:16/BP4A.251205.006/S931BXXU9CZDP:user/release-keys 2>/dev/null
-"$RP" ro.build.type user 2>/dev/null
-"$RP" ro.build.tags release-keys 2>/dev/null
-"$RP" ro.build.version.security_patch 2026-04-05 2>/dev/null
-"$RP" ro.vendor.build.security_patch 2026-04-05 2>/dev/null
+# DEVICE IDENTITY (was WIP50, hardcoded to pa1q/S931B). The skeymast trustlet derives its
+# build_type by PARSING the `type` field of ro.build.fingerprint (confirmed in the .mbn:
+# "build_type->data : %s"; libskeymint10device.so reads ro.build.fingerprint). In the TWRP env
+# that fingerprint is the eng/test-keys TWRP one -> the TA runs its slow ENG init (~43s cold-
+# load). The device's REAL ROM is user/release-keys. Feed the genuine fingerprint so the TA
+# parses build_type=user and takes the fast production init. Lock-state enforcement is keyed on
+# ro.boot.verifiedbootstate / SetRot (UNTOUCHED here), not build_type, so the lenient unlocked
+# key path is preserved. Read it ALL off the device's own mounted system/vendor: Samsung has no
+# literal ro.build.fingerprint in build.prop, the real value is ro.system.build.fingerprint.
+# This is what makes one script serve the entire S25 line (pa1q/pa3q/...) and survive OTAs - no
+# fallbacks: a missing value is SKIPPED (kept current) + logged, never overwritten with a guess.
+FP=$(prop_from "$SYS_BP" ro.system.build.fingerprint)
+BTYPE=$(prop_from "$SYS_BP" ro.system.build.type)
+BTAGS=$(prop_from "$SYS_BP" ro.system.build.tags)
+SPATCH=$(prop_from "$SYS_BP" ro.build.version.security_patch)
+VPATCH=$(prop_from "$VEN_BP" ro.vendor.build.security_patch)
+if [ -n "$FP" ]; then "$RP" ro.build.fingerprint "$FP" 2>/dev/null
+else echo "WARN: ro.system.build.fingerprint not found in $SYS_BP - TA may take slow ENG init"; fi
+[ -n "$BTYPE" ]  && "$RP" ro.build.type "$BTYPE" 2>/dev/null
+[ -n "$BTAGS" ]  && "$RP" ro.build.tags "$BTAGS" 2>/dev/null
+[ -n "$SPATCH" ] && "$RP" ro.build.version.security_patch "$SPATCH" 2>/dev/null
+[ -n "$VPATCH" ] && "$RP" ro.vendor.build.security_patch "$VPATCH" 2>/dev/null
 echo "props: release=$(getprop ro.build.version.release) dm_fmt=$(getprop ro.crypto.dm_default_key.options_format.version) set_dun=$(getprop ro.crypto.set_dun)"
 echo "ta-speed: fp=$(getprop ro.build.fingerprint) type=$(getprop ro.build.type) sec_patch=$(getprop ro.build.version.security_patch)"
 
