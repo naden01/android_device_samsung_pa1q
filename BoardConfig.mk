@@ -106,26 +106,26 @@ BOARD_AVB_VENDOR_BOOT_ROLLBACK_INDEX_LOCATION := 1
 PLATFORM_SECURITY_PATCH := 2099-12-31
 VENDOR_SECURITY_PATCH := 2099-12-31
 PLATFORM_VERSION := 12
-# CRYPTO DISABLED (WIP59). The self-contained A16 decrypt stack now does EVERYTHING, so
-# TWRP's own Android-12-era FBE code is dead weight:
-#   - decrypt.sh mounts the metadata (dm-default-key) layer via our own A16 vold,
-#   - de_keyinstall installs the systemwide + user-0 DE and the user-0 CE keys,
-#   - the `password` helper handles a real lockscreen PIN/password (scrypt -> weaver -> SP),
-#   - remount_watcher re-mounts /data after a TWRP GUI unmount, no reboot.
-# Leaving TWRP crypto ON only HURT: its startup FBE path did waitForService(KeyMint) and
-# stalled the boot/logo (previously worked around by the early auto-start), and it drew a
-# broken "Decrypt Data" button/page that cannot parse A16 keys. Turning these OFF:
-#   * faster TWRP init - no crypto init, no waitForService(KeyMint) stall,
-#   * removes the dead "Decrypt Data" button/page (the crypto UI is no longer compiled in),
-#   * changes NOTHING about our decrypt - it never used TWRP's crypto.
-# decrypt.sh still auto-starts on boot and mounts /data, so the partition shows mounted in
-# TWRP (there may be a brief window at startup where /data reads as unmounted until decrypt.sh
-# runs - TWRP never auto-formats, so this is cosmetic).
+# CRYPTO RE-ENABLED (WIP63) to fix two cosmetic side effects WIP59's crypto-off introduced.
+# With crypto OFF, TWRP was UNAWARE that /data is encrypted, so it:
+#   - tried to mount the raw, still-encrypted /data at startup -> "Failed to mount '/data'
+#     (Invalid argument)" noise on the logo, and
+#   - could not report the real storage size (Update_Size can't mount /data -> 0MB).
+# With TW_INCLUDE_CRYPTO on, Setup_Data_Partition marks /data Is_Encrypted + Can_Be_Mounted=
+# false, so TWRP no longer attempts the doomed raw mount -> the "Invalid argument" noise is gone.
+# It also reads ro.crypto.fs_crypto_blkdev, which decrypt.sh now sets to the dm-default-key device
+# after it mounts /data: TWRP then treats /data as ALREADY decrypted -> Decrypted_Block_Device =
+# the dm, TW_IS_ENCRYPTED=0 (no "Decrypt Data" button) and Update_Size statfs's the dm -> the real
+# storage size. This is the SAME flag set that booted to GUI in WIP32 (the startup
+# waitForService(KeyMint) completes because decrypt.sh auto-starts the A16 stack). Our A16-stack
+# decrypt never used TWRP's own crypto and is unchanged - this only adds TWRP's encryption
+# AWARENESS, not its (A16-incompatible) decrypt. TW_INCLUDE_FBE_METADATA_DECRYPT stays OFF: that
+# one is the fscrypt_mount_metadata_encrypted startup path that hangs.
 # IMPORTANT: these are -D compile flags -> a CLEAN recovery build is REQUIRED, or a stale
 # partitionmanager.o is reused and the change silently has no effect.
-TW_INCLUDE_CRYPTO := false
-TW_INCLUDE_CRYPTO_FBE := false
-BOARD_USES_QCOM_FBE_DECRYPTION := false
+TW_INCLUDE_CRYPTO := true
+TW_INCLUDE_CRYPTO_FBE := true
+BOARD_USES_QCOM_FBE_DECRYPTION := true
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
 
