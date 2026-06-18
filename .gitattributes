@@ -1,2 +1,8 @@
 *.sh text eol=lf
 *.rc text eol=lf
+# recovery ramdisk helpers have no .sh extension (remount_watcher/remount_data/password/...)
+# and twrp.flags/fstab are parsed on-device - all must stay LF or the shebang/parser breaks.
+recovery/root/system/bin/* text eol=lf
+recovery/root/system/etc/twrp.flags text eol=lf
+recovery.fstab text eol=lf
+prebuilt/fstab.qcom text eol=lf
