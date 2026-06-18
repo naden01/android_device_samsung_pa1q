@@ -1,15 +1,4 @@
 # mount point	    fstype		device			device2			flags
-# /data: two block devices so TWRP mounts the DECRYPTED layer itself. Primary =
-# mapper/userdata (the dm-default-key device our A16 vold creates at decrypt); TWRP's
-# Find_Actual_Block_Device prefers it when present -> the GUI Mount mounts the decrypted
-# f2fs natively (checkbox confirms, no "Device busy", no glitch) and Update_Size reports
-# the real storage size. Alternate = raw userdata: used only when the dm is ABSENT
-# (decrypt broke) so the emergency "Format Data" still works on the raw partition. Only the
-# devices are overridden here; storage/formattable/keydirectory flags stay from
-# recovery.fstab, and since /data is already in recovery.fstab no duplicate Data button is
-# created. de_keyinstall (via the remount watcher) installs the FBE keys after the mount.
-/data		f2fs	/dev/block/mapper/userdata	/dev/block/by-name/userdata	flags=display="Data"
-
 # Symlinked partitions
 /system_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system		flags=backup=0;slotselect;flashimg;display="System Image"
 /vendor_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor		flags=backup=0;slotselect;flashimg;display="Vendor Image"
