@@ -362,6 +362,15 @@ lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" 2>&1
 m=0; while [ "$m" -lt 30 ]; do grep -qE " /data " /proc/mounts 2>/dev/null && break; m=$((m + 1)); sleep 0.1; done
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "SUCCESS: /data mounted (~$((m * 100))ms)"; grep -E " /data " /proc/mounts
+    # WIP63: tell TWRP (crypto now compiled in) that /data is ALREADY decrypted on the dm device.
+    # On its next Setup_Data_Partition scan TWRP reads ro.crypto.fs_crypto_blkdev and sets
+    # Decrypted_Block_Device = this dm -> TW_IS_ENCRYPTED=0 (no "Decrypt Data" button) and
+    # Update_Size statfs's the dm -> the real storage size (not 0MB). ro.* is write-once so use
+    # resetprop. The crypto flags also make TWRP mark /data encrypted at startup, which stops the
+    # boot-time "Failed to mount '/data' (Invalid argument)" noise (it no longer tries the raw mount).
+    "$RP" ro.crypto.fs_crypto_blkdev /dev/block/mapper/userdata 2>/dev/null \
+        || setprop ro.crypto.fs_crypto_blkdev /dev/block/mapper/userdata
+    echo "ro.crypto.fs_crypto_blkdev=$(getprop ro.crypto.fs_crypto_blkdev) (TWRP sees /data decrypted -> size + no button)"
 else
     echo "/data not mounted - check decrypt.log for the vold mountFstab error"
     # a failed mount with a cached ROT means the cache is stale -> drop it so next boot re-probes
