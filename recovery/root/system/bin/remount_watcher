@@ -1,29 +1,40 @@
 #!/system/bin/sh
-# Auto-remount watcher. Started by decrypt.sh ONLY after the FIRST successful /data mount, so
-# every boot-time mount failure already in recovery.log is in the baseline and ignored.
+# FBE-key installer for /data. With the two-device twrp.flags entry, TWRP now mounts the
+# DECRYPTED dm device (mapper/userdata) itself when the user taps Mount in the GUI - so this
+# watcher no longer mounts /data. But TWRP mounts only the f2fs; the per-file FBE keys are NOT
+# in the kernel keyring after a fresh mount (umount drops the f2fs superblock and its keyring),
+# so /data/data, /data/misc, /data/system etc. would show encrypted names. This loop re-installs
+# the three FBE layers (de_keyinstall: systemwide DE + user-0 DE + user-0 CE; CE comes from the
+# cached synthetic password /tmp/.ce_sp if it was unlocked this boot) whenever /data is mounted
+# without keys.
 #
-# TWRP 12.1 cannot mount the A16 FBE /data itself, so once the user unmounts /data via the GUI
-# they normally can't get it back without a reboot. This watcher fixes that: when /data is
-# actually unmounted AND the user then presses Mount in the GUI (TWRP fails and logs
-# "Unable to mount '/data'" / "Failed to mount '/data'"), we remount the persistent
-# dm-default-key device and re-install the FBE keys (remount_data). A busy/failed UNMOUNT
-# leaves /data mounted, so it never triggers a remount.
-RLOG=/tmp/recovery.log
-PAT="Unable to mount '/data'|Failed to mount '/data'"
+# It calls de_keyinstall DIRECTLY (NOT `twrp` CLI, NOT remount_data): any `twrp` command forces a
+# GUI page redraw = the visual glitch we hit and reverted, and remount_data would early-exit since
+# /data is already mounted. So there is zero GUI interaction here.
+#
+# Started by decrypt.sh only after the first successful boot-time mount+key install. On a
+# PIN/password device de_keyinstall installs the DE layers here; CE still needs `password <cred>`
+# once if it was not cached this boot.
+SYS=/decrypt
+LK="$SYS/system/bin/bootstrap/linker64"
+LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 
-count() { c=$(grep -cE "$PAT" "$RLOG" 2>/dev/null); [ -z "$c" ] && c=0; echo "$c"; }
-base=$(count)
+install_keys() {
+    [ -e "$LK" ] || return
+    ( export LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system
+      exec "$LK" /system/bin/de_keyinstall ) >/tmp/remount_watcher.log 2>&1
+}
 
+tried=0
 while true; do
-    sleep 2
-    if grep -qE " /data " /proc/mounts 2>/dev/null; then
-        base=$(count)        # mounted -> only failures AFTER a real unmount should count
+    sleep 0.1
+    if ! grep -qE " /data " /proc/mounts 2>/dev/null; then
+        tried=0          # /data unmounted -> re-arm for the next mount
         continue
     fi
-    # /data is unmounted - did the user just press Mount (a NEW mount-fail line)?
-    cur=$(count)
-    if [ "$cur" -gt "$base" ]; then
-        /system/bin/remount_data >/tmp/remount_watcher.log 2>&1
-        base=$(count)
-    fi
+    # /data is mounted (TWRP mounted the dm). Install the FBE keys if none are in the keyring yet.
+    [ "$(grep -c fscrypt /proc/keys 2>/dev/null)" -gt 0 ] && continue   # keys already present
+    [ "$tried" = 1 ] && continue                                        # attempted for this mount; don't spam on failure
+    install_keys
+    tried=1
 done

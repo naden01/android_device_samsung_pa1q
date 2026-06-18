@@ -391,6 +391,23 @@ else
     echo "FBE DE-key install skipped (no /data, no key material, or binary missing)"
 fi
 
+# FREE /data for the TWRP GUI "Unmount" checkbox. keystore2's only job here was the
+# initial shared-secret handshake that WARMS the KeyMint skeymast TA; that is done by now
+# and the TA stays warm TZ-side for the rest of the session. But the A16 keystore2 keeps
+# the device's REAL /data/misc/keystore/persistent.sqlite OPEN (fd RW) - and that single
+# fd is the ONLY thing pinning /data, so TWRP's GUI Unmount Data fails with EBUSY ("Device
+# or resource busy"). Stopping keystore2 now releases that fd: /data then has ZERO holders,
+# so the GUI checkbox unmounts it cleanly with no error. The remount watcher's de_keyinstall
+# talks to KeyMint DIRECTLY (not via keystore2) and KeyMint/hermesd stay up, so a later GUI
+# "Mount" (-> watcher -> remount_data) still re-installs all three FBE layers fine. Verified
+# live 2026-06-18: after ctl.stop, lsof shows /data unheld while keymint(755)/hermesd(753)
+# stay alive. Bonus: stopping it sooner shrinks the window the recovery keystore2 holds the
+# real keystore DB open RW. (Re-running decrypt restarts keystore2 in the stack section.)
+if [ "$(getprop init.svc.decrypt-keystore2)" = "running" ]; then
+    setprop ctl.stop decrypt-keystore2
+    echo "keystore2 stopped (frees /data for GUI unmount; TA already warm, de_keyinstall reaches KeyMint directly)"
+fi
+
 # CRITICAL boot-safety - ALWAYS restore the pristine metadata key before exit, whether or
 # not the mount succeeded. By this point the dir is mutated regardless: the ROT-sync probe
 # wrote the TWRP-context ROT (0x17) and vold's mountFstab made KeyMint upgrade
