@@ -31,8 +31,14 @@
 # data files the decrypt flow actually creates. (Broad read + scoped write is
 # the stock-recovery shape: recovery legitimately inspects every partition.)
 #############################################################################
-# read + stat + mmap any labeled file/dir/symlink
-allow recovery file_type:dir { getattr search open read ioctl lock };
+# read + stat + mmap any labeled file/dir/symlink.
+# NOTE: NO `ioctl` on file_type:dir. file_type covers every labeled file type,
+# including system_seccomp_policy_file, and granting plain (unconstrained) ioctl
+# on its :dir trips the global neverallowxperm in system/sepolicy/public/domain.te
+# (~line 362): "neverallowxperm ... system_seccomp_policy_file:dir ioctl". Recovery
+# never needs to ioctl a directory (dir ioctls are for things like casefold/getflags
+# we don't issue here), so the read/traverse set below is the correct, build-safe shape.
+allow recovery file_type:dir { getattr search open read lock };
 allow recovery file_type:file { getattr open read ioctl lock map };
 allow recovery file_type:lnk_file { getattr read };
 # execute the mounted-dump binaries (linker64, vold, vdc, keystore2, qseecomd...)
@@ -54,7 +60,7 @@ allow recovery fs_type:filesystem { mount remount unmount getattr };
 # (super), vndbinder, dmabuf, kmsg, the /dev/fscklogs dir, by-name symlinks.
 #############################################################################
 allow recovery dev_type:blk_file rw_file_perms;
-allow recovery dev_type:chr_file { rw_file_perms execute };
+allow recovery dev_type:chr_file rw_file_perms;
 allow recovery dev_type:dir { getattr search open read write add_name remove_name };
 allow recovery dev_type:file { getattr open read write create append ioctl lock };
 allow recovery dev_type:lnk_file { getattr read create unlink };
@@ -65,29 +71,6 @@ allow recovery dev_type:sock_file { getattr write create setattr unlink };
 #############################################################################
 allow recovery sysfs_type:dir { getattr search open read };
 allow recovery sysfs_type:file { getattr open read write };
-
-#############################################################################
-# Pseudo-filesystems are fs_type, NOT file_type, so the broad file_type read
-# above does NOT reach them: proc/proc_* , selinuxfs, configfs, tmpfs, rootfs
-# (/), the apnhlos vfat, functionfs. Cover read + the scratch writes recovery
-# performs (mkdir/create under / and tmpfs, the fsck log dir, vfat).
-#############################################################################
-allow recovery fs_type:dir { getattr search open read write add_name remove_name setattr ioctl lock relabelfrom };
-allow recovery fs_type:file { getattr open read write create setattr append ioctl lock };
-allow recovery fs_type:lnk_file { getattr read create unlink };
-allow recovery fs_type:fifo_file { getattr open read write create };
-
-#############################################################################
-# Walk /proc of any other domain (those entries are labelled with the task's
-# own domain type: logd / kernel / init / vendor_init / ueventd ...), plus the
-# socket files that live under a file_type label (logdr_socket), and cache
-# restorecon. domain:key view also covers recovery/init/kernel key view.
-#############################################################################
-allow recovery domain:dir { getattr search open read };
-allow recovery domain:file { getattr open read };
-allow recovery domain:key view;
-allow recovery file_type:sock_file { getattr read write create setattr unlink };
-allow recovery data_file_type:dir relabelto;
 
 #############################################################################
 # Properties: read the whole tree (getprop), and set the ones the decrypt flow
@@ -127,6 +110,8 @@ allow recovery recovery:process { execmem setexec };
 allow recovery recovery:netlink_kobject_uevent_socket { create bind read setopt getopt };
 allow recovery recovery:netlink_selinux_socket { create bind read write };
 allow recovery recovery:netlink_socket { create bind read write };
+allow recovery recovery:key view;
+allow recovery { init kernel }:key view;
 allow recovery kernel:security compute_av;
 allow recovery kernel:system module_request;
 allow recovery logd:unix_stream_socket connectto;
