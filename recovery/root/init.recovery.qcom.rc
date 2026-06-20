@@ -36,6 +36,24 @@ on init
     setprop ro.twrp.fastbootd 1
     setprop ro.boot.fastbootd false
 
+    # MTP OFF at boot, ADB always on, MTP only via the manual Mount-page button.
+    # Why: at startup TWRP's MTP auto-enable (twrp.cpp) is gated by
+    #   (!TW_IS_ENCRYPTED || TW_IS_DECRYPTED) - and on this device /data is still
+    #   FBE-encrypted at that moment (our A16 decrypt.sh finishes LATER, on purpose).
+    #   So the MTP server never actually starts, yet tw_mtp_enabled stays at its
+    #   data.cpp default of 1 -> the Mount button shows "Disable MTP" while MTP is
+    #   really OFF and Windows sees nothing. Toggling it twice was the only fix.
+    # We can't edit TWRP source, so we drive its OWN startup branch from here:
+    #   property_get("mtp.crash_check") != "0"  ->  TWRP sets tw_mtp_enabled=0 and
+    #   calls Disable_MTP() (sys.usb.config="adb", so adbd stays up). Result: MTP
+    #   off, button correctly reads "Enable MTP", and a manual press runs Enable_MTP()
+    #   (which does NOT read mtp.crash_check) AFTER /data is mounted -> clean one-press
+    #   enumeration. Set in `on init` so it is committed long before the recovery
+    #   binary reaches that check. Cost: a cosmetic "MTP Crashed" line in the TWRP
+    #   console log (gui_warn, not a popup). The crash_counter branch would avoid the
+    #   log line but skips Fixup_Time_On_Boot() -> breaks our TARGET_RECOVERY_QCOM_RTC_FIX.
+    setprop mtp.crash_check 1
+
 on property:ro.boot.usbcontroller=*
     setprop sys.usb.controller ${ro.boot.usbcontroller}
     wait /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode
