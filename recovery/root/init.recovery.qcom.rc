@@ -31,7 +31,17 @@ on init
 	
 on init
     write /sys/class/backlight/panel0-backlight/brightness 200
-    setprop sys.usb.configfs 1
+    # NOTE: do NOT set sys.usb.configfs here.
+    # Our init.recovery.usb.rc builds the g1 gadget itself and gates only on
+    # (sys.usb.config=adb && sys.usb.ffs.ready=1) - it never reads configfs.
+    # The stock GKI generic-ramdisk /system/etc/init/hw/init.rc:201 USB handler
+    # (always present in this vendor_boot recovery) fires on
+    # (config=adb && configfs=1 && ffs.ready=1) and symlinks the SAME f1 / writes
+    # the SAME g1/UDC. With configfs=1 both handlers race every ~1s:
+    #   symlink ... f1 ... failed: File exists
+    #   UDC core: g1: couldn't find an available UDC or it's busy
+    # -> gadget flaps, host never enumerates, adb stays empty. Leaving configfs
+    # unset keeps every stock USB handler dormant so only our handler runs.
     setprop ro.twrp.vendor_boot true
     setprop ro.twrp.fastbootd 1
     setprop ro.boot.fastbootd false
