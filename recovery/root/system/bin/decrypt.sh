@@ -14,6 +14,14 @@
 LOG=/tmp/decrypt.log
 exec >>"$LOG" 2>&1
 echo "===== decrypt start (uptime $(cat /proc/uptime 2>/dev/null)) ====="
+# WIP65: wipe the log buffers up front. The handshake warm-up poll below is already
+# stale-proof via its hs_base count-delta, but the OTHER readiness greps (qseecomd
+# "QSEECOM DAEMON RUNNING", keymint "adding", and the ROT "checkRotStr" parse) are plain
+# `grep -q` with no baseline - on a RE-RUN in the same boot they'd match the PREVIOUS run's
+# lines instantly (a stale ROT read is the dangerous one: it could write a wrong rot value).
+# Clearing -b all once here means every grep can only ever see lines this run produced; it
+# also resets hs_base to 0 so the count-delta still works unchanged.
+logcat -c -b all 2>/dev/null
 
 # /metadata mount: with TWRP crypto disabled (BoardConfig) TWRP no longer mounts
 # /metadata at startup, but the entire metadata-encryption key dir lives there - and so
@@ -253,6 +261,18 @@ done
 # de_keyinstall runs) - which also kills the old chdir-fail + 5s init-restart race. Only needs
 # qseecomd (TEE) + the eSE, both ready here. IWeaver stays up via its hermes_secnvm socket.
 mkdir -p /tmp/hermes_gk /mnt/vendor/efs/hermes 2>/dev/null
+# WIP65: kill any stale hermesd before (re)starting. decrypt-hermes is `disabled` so init
+# never auto-starts it - but on a RE-RUN the PREVIOUS run's instance is still alive (and the
+# very first start of a session crash-loops once on "delete all credentials for first boot"
+# -> Check failed status=-3). A leftover instance keeps /dev/k250a (the eSE) and the
+# hermes_secnvm socket held, so the new one comes up degraded. ctl.stop forces init to the
+# stopped state (it will NOT auto-restart a ctl.stopped service, which also breaks any crash
+# loop); we poll until it's actually gone, then start a single clean instance. No-op if none
+# was running. Mirrors the keystore2/servicemanager stop-then-start handoff above.
+setprop ctl.stop decrypt-hermes
+n=0; while [ "$n" -lt 20 ] && [ "$(getprop init.svc.decrypt-hermes)" = "running" ]; do
+    n=$((n + 1)); sleep 0.1
+done
 start_svc decrypt-hermes
 
 start_svc decrypt-keymint
