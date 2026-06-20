@@ -1,0 +1,154 @@
+# Samsung Galaxy S25 series - recovery SELinux policy (model-agnostic).
+#
+# Goal: give the single TWRP `recovery` domain the full access it legitimately
+# needs and stop the recovery log being flooded with benign "avc: denied ...
+# permissive=1" lines, WITHOUT leaving permissive and WITHOUT breaking the build.
+#
+# Why this is safe and not a hack:
+#  * The device boots androidboot.selinux=permissive (BoardConfig.mk) and STAYS
+#    permissive - nothing here changes enforcement. In permissive a denial is
+#    logged only when no allow rule matches, so adding the rules simply silences
+#    the spam.
+#  * decrypt.sh runs the whole Android-16 security stack (servicemanager /
+#    qseecomd / keymint / keystore2 / vold / vdc / hermesd) through init services
+#    tagged `seclabel u:r:recovery:s0`. So this one domain does the work of a
+#    dozen normal domains and touches far more types than stock TWRP recovery.
+#  * Verified against the SM-S931B factory dump's compiled policy
+#    (plat_sepolicy.cil): the `recovery` domain is explicitly excluded from the
+#    dangerous neverallows (it appears in the `(not (... recovery ...))` set of
+#    base_typeattr_972/860/538/487/484/483/482/476 ...), which is exactly why
+#    AOSP lets recovery have broad block/fs/file access. Granting via the public
+#    attributes below therefore does not trip a neverallow at build time.
+#
+# Universal by construction: every rule is written against shared platform
+# attributes/types (file_type, dev_type, data_file_type, sysfs_type, exec_type,
+# property_type, vold_metadata_file, ...) - identical across the whole S25 line -
+# and contains NO device-specific path or model name, so it applies to any
+# S25-series model unchanged (it is wired in only through the generic DEVICE_PATH).
+
+#############################################################################
+# Filesystem: read/traverse anything, run the A16 binaries, write the dirs and
+# data files the decrypt flow actually creates. (Broad read + scoped write is
+# the stock-recovery shape: recovery legitimately inspects every partition.)
+#############################################################################
+# read + stat + mmap any labeled file/dir/symlink
+allow recovery file_type:dir { getattr search open read ioctl lock };
+allow recovery file_type:file { getattr open read ioctl lock map };
+allow recovery file_type:lnk_file { getattr read };
+# execute the mounted-dump binaries (linker64, vold, vdc, keystore2, qseecomd...)
+allow recovery exec_type:file { execute map };
+# /data: create/read/write/remove across every /data file type (keystore2 DB,
+# vold data, unencrypted DE key, system_data, cache) - recovery owns /data.
+allow recovery data_file_type:dir create_dir_perms;
+allow recovery data_file_type:file create_file_perms;
+allow recovery data_file_type:lnk_file { getattr read create unlink rename };
+# /metadata key dir (these two are file_type-only, named explicitly)
+allow recovery { metadata_file vold_metadata_file }:dir create_dir_perms;
+allow recovery { metadata_file vold_metadata_file }:file create_file_perms;
+# bind mounts we set up (vintf/vendor overlay, efs/persist, functionfs)
+allow recovery { fs_type file_type }:dir mounton;
+allow recovery fs_type:filesystem { mount remount unmount getattr };
+
+#############################################################################
+# Device nodes: every dev_type - partitions, the dm-default-key device, loop
+# (super), vndbinder, dmabuf, kmsg, the /dev/fscklogs dir, by-name symlinks.
+#############################################################################
+allow recovery dev_type:blk_file rw_file_perms;
+allow recovery dev_type:chr_file { rw_file_perms execute };
+allow recovery dev_type:dir { getattr search open read write add_name remove_name };
+allow recovery dev_type:file { getattr open read write create append ioctl lock };
+allow recovery dev_type:lnk_file { getattr read create unlink };
+allow recovery dev_type:sock_file { getattr write create setattr unlink };
+
+#############################################################################
+# sysfs tunables vold/f2fs/dm/loop/zram poke (all sysfs_* types).
+#############################################################################
+allow recovery sysfs_type:dir { getattr search open read };
+allow recovery sysfs_type:file { getattr open read write };
+
+#############################################################################
+# Pseudo-filesystems are fs_type, NOT file_type, so the broad file_type read
+# above does NOT reach them: proc/proc_* , selinuxfs, configfs, tmpfs, rootfs
+# (/), the apnhlos vfat, functionfs. Cover read + the scratch writes recovery
+# performs (mkdir/create under / and tmpfs, the fsck log dir, vfat).
+#############################################################################
+allow recovery fs_type:dir { getattr search open read write add_name remove_name setattr ioctl lock relabelfrom };
+allow recovery fs_type:file { getattr open read write create setattr append ioctl lock };
+allow recovery fs_type:lnk_file { getattr read create unlink };
+allow recovery fs_type:fifo_file { getattr open read write create };
+
+#############################################################################
+# Walk /proc of any other domain (those entries are labelled with the task's
+# own domain type: logd / kernel / init / vendor_init / ueventd ...), plus the
+# socket files that live under a file_type label (logdr_socket), and cache
+# restorecon. domain:key view also covers recovery/init/kernel key view.
+#############################################################################
+allow recovery domain:dir { getattr search open read };
+allow recovery domain:file { getattr open read };
+allow recovery domain:key view;
+allow recovery file_type:sock_file { getattr read write create setattr unlink };
+allow recovery data_file_type:dir relabelto;
+
+#############################################################################
+# Properties: read the whole tree (getprop), and set the ones the decrypt flow
+# writes. `set` is kept to an explicit list (each is neverallow-guarded
+# individually); the read covers everything via the property_type attribute.
+#############################################################################
+allow recovery property_type:file r_file_perms;
+allow recovery {
+    apexd_prop
+    boot_status_prop
+    boottime_public_prop
+    build_prop
+    ctl_interface_start_prop
+    default_prop
+    exported_system_prop
+    fingerprint_prop
+    hwservicemanager_prop
+    keystore_crash_prop
+    storage_config_prop
+    system_prop
+    vendor_default_prop
+    vendor_security_patch_level_prop
+    vold_config_prop
+    vold_prop
+    vold_status_prop
+}:property_service set;
+# resetprop overwrites a few ro.* values by writing the prop area directly
+allow recovery property_type:file write;
+allow recovery properties_serial:file write;
+
+#############################################################################
+# The A16 daemons run AS recovery: binder context-manager + IPC, netlink,
+# exec-mem (JIT/relocations), logd pipe, kernel security server, capabilities.
+#############################################################################
+allow recovery recovery:binder { set_context_mgr call transfer };
+allow recovery recovery:process { execmem setexec };
+allow recovery recovery:netlink_kobject_uevent_socket { create bind read setopt getopt };
+allow recovery recovery:netlink_selinux_socket { create bind read write };
+allow recovery recovery:netlink_socket { create bind read write };
+allow recovery kernel:security compute_av;
+allow recovery kernel:system module_request;
+allow recovery logd:unix_stream_socket connectto;
+allow recovery self:capability { sys_rawio sys_time fsetid sys_ptrace };
+allow recovery self:capability2 wake_alarm;
+
+#############################################################################
+# dontaudit, not allow - on purpose:
+#  * unlabeled:file execute - hermesd lives on the RO Android-16 erofs dump; its
+#    file_contexts label `hermesd_exec` (it IS defined in the dump's
+#    vendor_sepolicy.cil) is simply not present in recovery's loaded policy, so
+#    it resolves to `unlabeled`. It runs fine under permissive; you do not
+#    "allow" executing unlabeled files, you suppress the benign audit. Relabelling
+#    is impossible on a read-only mount, so dontaudit is the correct tool.
+#  * init / vendor_init / kernel are core domains a device policy must not extend
+#    with allow rules; these few are harmless init actions our .rc drives
+#    (functionfs mount, hermes_secnvm socket, sysfs write, vendor mkdir).
+#############################################################################
+dontaudit recovery unlabeled:file execute;
+dontaudit init functionfs:dir mounton;
+dontaudit init socket_device:sock_file { create setattr unlink };
+dontaudit init sysfs:file { write open };
+dontaudit init vendor_file:dir create;
+dontaudit vendor_init rootfs:dir { write add_name create };
+dontaudit kernel vfat:dir search;
