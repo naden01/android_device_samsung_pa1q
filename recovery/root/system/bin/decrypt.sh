@@ -262,6 +262,13 @@ n=0; while [ "$n" -lt 48 ]; do
 done
 # keystore2's shared-secret handshake triggers the skeymast TA load - start it immediately so
 # the 43s TZ load begins ASAP (no fixed sleep).
+# Fresh-window baseline: count handshake markers ALREADY in the ring buffer, so the poll
+# below waits for a NEW handshake from THIS keystore2 start - not a stale hit from a prior
+# decrypt run. (The WIP64 revert traced a false "warm after ~0s" to exactly such a stale
+# `logcat -d -b all` match. Count-delta also degrades safe: a wrapped/evicted baseline just
+# times out into the vold attempt, never a false-early "warm".)
+HS_RE="computeSharedSecret: ret 0|Shared secret negotiation concluded"
+hs_base=$(logcat -d -b all 2>/dev/null | grep -cE "$HS_RE")
 start_svc decrypt-keystore2
 # bootctl HAL must register BEFORE vold (mountFstab waits on IBootControl/default).
 start_svc decrypt-bootctl
@@ -272,11 +279,12 @@ start_svc decrypt-bootctl
 echo "waiting for KeyMint TA warm-up (shared-secret handshake)..."
 w=0
 while [ "$w" -lt 300 ]; do
-    logcat -d -b all 2>/dev/null | grep -qE "computeSharedSecret: ret 0|Shared secret negotiation concluded" && break
+    # break only when a NEW handshake line appears past the baseline (stale-match proof)
+    [ "$(logcat -d -b all 2>/dev/null | grep -cE "$HS_RE")" -gt "$hs_base" ] && break
     w=$((w + 1)); sleep 0.2
 done
 echo "keymint TA warm after ~$((w / 5))s (handshake $([ "$w" -lt 300 ] && echo seen || echo TIMEOUT))"
-# TA-SPEED EXPERIMENT readout: confirm which build_type the trustlet parsed from the fingerprint
+# TA-SPEED EXPERIMENT readout: build_type the trustlet parsed from the fingerprint this run
 echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build_type->data : [a-z]+" | tail -1)"
 start_svc decrypt-vold
 wait_run decrypt-vold
