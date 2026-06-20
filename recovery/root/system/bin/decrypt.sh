@@ -51,9 +51,13 @@ while [ "$n" -lt 80 ]; do
     n=$((n + 1)); sleep 0.5
 done
 echo "mapper wait ~$((n * 500))ms (system_a=$([ -e /dev/block/mapper/system_a ] && echo y || echo n) vendor_a=$([ -e /dev/block/mapper/vendor_a ] && echo y || echo n))"
-# let the TWRP GUI finish its own startup before we stop the A12 servicemanager
-# (we swap in the A16 one) so the swap does not race TWRP's init.
-sleep 3
+# NOTE: the old blind `sleep 3` here (to avoid racing TWRP's startup before the A12
+# servicemanager swap) is GONE. None of the prep below (mount /decrypt, firmware, VINTF
+# overlay, efs/persist, version props) touches the A12 servicemanager, so it is safe to
+# run NOW - in parallel with TWRP's own boot. The swap itself is the only step that must
+# wait for TWRP, and it is gated precisely just before section 4 (poll on the TWRP
+# crypto-wait marker in recovery.log) instead of on a fixed timer. This overlaps all the
+# prep with the logo and cuts ~3s off logo->main-menu.
 
 # 1. mount the real A16 system + vendor (idempotent)
 if [ ! -e "$LK" ]; then
@@ -206,6 +210,20 @@ else echo "WARN: ro.system.build.fingerprint not found in $SYS_BP - TA may take 
 [ -n "$VPATCH" ] && "$RP" ro.vendor.build.security_patch "$VPATCH" 2>/dev/null
 echo "props: release=$(getprop ro.build.version.release) dm_fmt=$(getprop ro.crypto.dm_default_key.options_format.version) set_dun=$(getprop ro.crypto.set_dun)"
 echo "ta-speed: fp=$(getprop ro.build.fingerprint) type=$(getprop ro.build.type) sec_patch=$(getprop ro.build.version.security_patch)"
+
+# 3b. SWAP GATE (replaces the old blind `sleep 3`). Wait until TWRP has finished its own
+#     startup and is parked in waitForService(KeyMint) - the exact wait our A16 KeyMint
+#     below satisfies. TWRP logs "additional fstab for decryption" the instant it enters
+#     that crypto path (a beat before it blocks), so poll recovery.log for it: we swap the
+#     servicemanager the moment TWRP needs us, not on a fixed timer. This is also SAFER than
+#     the old timer - we never stop the A12 sm while TWRP is still using it for non-crypto
+#     startup. Bounded 3s fallback = the old worst case (and covers a crypto-OFF build where
+#     the marker never prints). All prep above already ran in parallel with the logo.
+g=0; while [ "$g" -lt 30 ]; do
+    grep -q "fstab for decryption" /tmp/recovery.log 2>/dev/null && break
+    g=$((g + 1)); sleep 0.1
+done
+echo "swap gate: TWRP crypto-wait reached after ~$((g * 100))ms ($([ "$g" -lt 30 ] && echo marker-seen || echo TIMEOUT-proceeding))"
 
 # 4. hand /dev/binder to the A16 servicemanager: stop the A12 one (+ A12 keystore2).
 #    ctl.stop leaves them stopped (only crashes auto-restart), so the A16 sm can
