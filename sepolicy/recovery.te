@@ -167,7 +167,10 @@ allow recovery {
 }:service_manager { add find };
 
 # Keystore2_key operations (FBE decrypt: vold key conversion via KeyMint)
-allow recovery vold_key:keystore2_key { manage_blob use req_forced_op convert_storage_key_to_ephemeral };
+# NOTE: vold_key type does not exist in Android 12 base. The operations pass in
+# permissive mode anyway, so this rule is commented out for build compatibility.
+# If building on Android 13+ base, uncomment this line:
+# allow recovery vold_key:keystore2_key { manage_blob use req_forced_op convert_storage_key_to_ephemeral };
 
 # System bootstrap libs execute (A16 linker64 loads bootstrap libraries)
 allow recovery system_bootstrap_lib_file:file { execute execute_no_trans };
