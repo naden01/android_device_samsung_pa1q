@@ -64,6 +64,12 @@ on init
     #   log line but skips Fixup_Time_On_Boot() -> breaks our TARGET_RECOVERY_QCOM_RTC_FIX.
     setprop mtp.crash_check 1
 
+# vendor.keymint-default (class early_hal, no 'disabled') is auto-started by init when
+# decrypt.sh mounts vendor_a and init reads vendor rc files. It crashes (SIGABRT, status=-3)
+# trying to register before our A16 stack is ready. Property trigger stops it immediately.
+on property:init.svc.vendor.keymint-default=running
+    stop vendor.keymint-default
+
 # Switch all CPUs from the kernel default 'performance' governor to 'walt' at init time.
 # 'performance' (set via cpufreq.default_governor=performance in kernel cmdline) pins all 8
 # Snapdragon 8 Elite cores at their maximum frequency (cpu0-5: 3.5 GHz, cpu6-7: 4.5 GHz)
