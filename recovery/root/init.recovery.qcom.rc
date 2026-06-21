@@ -64,24 +64,6 @@ on init
     #   log line but skips Fixup_Time_On_Boot() -> breaks our TARGET_RECOVERY_QCOM_RTC_FIX.
     setprop mtp.crash_check 1
 
-    # F2FS sda59 startup-burst fix (WIP70). TWRP's startup Decrypt_Data() takes the FDE
-    # fallback (partitionmanager.cpp: TW_INCLUDE_FBE_METADATA_DECRYPT is OFF, so Is_FBE never
-    # gets set -> the `else` branch) and calls cryptfs_get_password_type(), which opens the
-    # RAW still-encrypted userdata (sda59). The kernel f2fs driver then dumps both superblocks
-    # as KERN_ERR (~2784 logcat + ~1457 dmesg lines in one ~11ms burst at boot - confirmed live
-    # on SM-S931B; there is no f2fs sysfs knob to silence it). Setting ro.crypto.fs_crypto_blkdev
-    # to the dm-default-key device HERE (before the recovery binary's Setup_Data_Partition scan
-    # reads it) makes TWRP take the "Data already decrypted" branch (partition.cpp:699): it sets
-    # Is_Decrypted + Decrypted_Block_Device and SKIPS both the raw Mount() and the FDE probe -> no
-    # burst. The dm does not exist yet at this point, which is fine: the branch only sets state,
-    # it does not mount; our decrypt.sh creates the dm seconds later and the post-decrypt
-    # Update_System_Details()->Update_Size() statfs's it (Find_Actual_Block_Device prefers
-    # Decrypted_Block_Device when Is_Decrypted), so the real storage size still shows. decrypt.sh
-    # later resetprops the SAME value -> idempotent no-op. The device path is the dm-default-key
-    # mapper node, identical across the whole S25 line (not model-specific). Committed in `on init`
-    # like mtp.crash_check above, long before the recovery binary reads it.
-    setprop ro.crypto.fs_crypto_blkdev /dev/block/mapper/userdata
-
 # Switch all CPUs from the kernel default 'performance' governor to 'walt' at init time.
 # 'performance' (set via cpufreq.default_governor=performance in kernel cmdline) pins all 8
 # Snapdragon 8 Elite cores at their maximum frequency (cpu0-5: 3.5 GHz, cpu6-7: 4.5 GHz)
