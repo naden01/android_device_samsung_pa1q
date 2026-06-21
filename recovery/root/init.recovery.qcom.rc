@@ -82,6 +82,26 @@ on init
     # like mtp.crash_check above, long before the recovery binary reads it.
     setprop ro.crypto.fs_crypto_blkdev /dev/block/mapper/userdata
 
+# Switch all CPUs from the kernel default 'performance' governor to 'walt' at init time.
+# 'performance' (set via cpufreq.default_governor=performance in kernel cmdline) pins all 8
+# Snapdragon 8 Elite cores at their maximum frequency (cpu0-5: 3.5 GHz, cpu6-7: 4.5 GHz)
+# regardless of load. In TWRP recovery there is no thermal-engine running (its .conf is empty
+# in the dump anyway), so nothing proactively manages CPU frequency; the kernel thermal governor
+# only acts at 105°C+. Result: 96-102°C at 4% CPU load (confirmed live on SM-S931B).
+# 'walt' is Qualcomm's production governor used in normal Android on this device: it scales
+# frequency dynamically (idle ~384 MHz, bursts to max when needed) so the decrypt and all
+# other tasks run at full speed when required and the chip stays at ~50°C at rest.
+# 8 individual writes because init `write` does not accept wildcards.
+on init
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu3/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu4/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu5/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor walt
+    write /sys/devices/system/cpu/cpu7/cpufreq/scaling_governor walt
+
 on property:ro.boot.usbcontroller=*
     setprop sys.usb.controller ${ro.boot.usbcontroller}
     wait /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode
