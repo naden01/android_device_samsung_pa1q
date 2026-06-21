@@ -1,5 +1,10 @@
 on init
-    start health-hal-2-1-samsung
+    # The /vendor/bin/hw/android.hardware.health@2.1-service-samsung binary does NOT exist
+    # on the S25 line (Samsung moved to AIDL health: vendor.samsung.hardware.health-service),
+    # so this start fails at boot with "Cannot find ...: No such file or directory". TWRP's
+    # own healthd reads the battery from sysfs, so nothing needs it. Disabled to drop the
+    # boot error line. (If a variant ever ships the binary, init still has the def below.)
+    # start health-hal-2-1-samsung
 
 service health-hal-2-1-samsung /vendor/bin/hw/android.hardware.health@2.1-service-samsung
     class hal charger

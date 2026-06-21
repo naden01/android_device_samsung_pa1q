@@ -123,9 +123,20 @@ allow recovery self:capability2 wake_alarm;
 # during normal operation. All are safe: the device is permissive, and recovery
 # is excluded from dangerous neverallows. Adding these makes logcat 100% clean.
 #############################################################################
-# Loop/DM device ioctls (TWRP super partition mapping via loop devices)
+# Loop/DM device ioctls (TWRP super partition mapping via loop devices).
+# The plain `allow ... ioctl` grants the ioctl PERMISSION, but the kernel also audits
+# specific ioctl COMMANDS via extended permissions (xperm). Live logs (SM-S931B) show
+# these exact commands still denied even with the plain allow present:
+#   0x5331 = CDROM_GET_CAPABILITY  (TWRP Find_Actual_Block_Device probes if dm is a CD-ROM)
+#   0x4c05 = LOOP_GET_STATUS64     (vold/linker64 queries loop devices for the super map)
+#   0x1260 = BLKGETSIZE            (block size query)
+# allowxperm whitelists those command numbers so the xperm audit stops too. (recovery is
+# excluded from the neverallowxperm sets, so this is build-safe - unlike a file_type:dir
+# xperm, which WIP66 had to drop.)
 allow recovery loop_device:blk_file ioctl;
 allow recovery dm_device:blk_file ioctl;
+allowxperm recovery dm_device:blk_file ioctl { 0x5331 0x1260 };
+allowxperm recovery loop_device:blk_file ioctl { 0x4c05 };
 
 # Rootfs tmpfs operations (TWRP creates temp files/symlinks/pipes on rootfs)
 allow recovery rootfs:dir { write add_name remove_name create setattr relabelfrom relabelto };
@@ -142,9 +153,14 @@ allow recovery selinuxfs:dir { read open };
 # Vfat firmware partition search (KeyMint TA searches /vendor/firmware_mnt)
 allow recovery vfat:dir search;
 
-# Tmpfs operations (ADB FIFO pipes, keystore2 DB on tmpfs, ashmem shared memory)
+# Tmpfs operations (ADB FIFO pipes, keystore2 DB on tmpfs, ashmem shared memory).
+# /dev is a tmpfs, so the dm-N / loopN nodes created there are ALSO seen with the tmpfs
+# label by some audits - hence the same probe ioctls (0x5331 CDROM_GET_CAPABILITY,
+# 0x4c05 LOOP_GET_STATUS64, 0x1260 BLKGETSIZE) plus 0xf50c show up as tmpfs:file ioctl.
+# allowxperm whitelists those commands so the extended-permission audit is silenced too.
 allow recovery tmpfs:dir { create_dir_perms mounton };
 allow recovery tmpfs:file { create_file_perms ioctl };
+allowxperm recovery tmpfs:file ioctl { 0x5331 0x4c05 0x1260 0xf50c };
 allow recovery tmpfs:fifo_file { create read open };
 allow recovery ashmem_libcutils_device:chr_file execute;
 
@@ -160,11 +176,18 @@ allow recovery {
     hal_sharedsecret_service
     hal_remotelyprovisionedcomponent_service
     hal_keymint_service
+    hal_weaver_service
+    authorization_service
     apc_service
     keystore_maintenance_service
     keystore_metrics_service
     legacykeystore_service
 }:service_manager { add find };
+# NOTE: hal_hermes_service (Samsung vendor.samsung.hardware.security.hermes.ISehHermesCommand)
+# is NOT defined in the Android-12 base sepolicy, so referencing it would break the build with
+# "unknown type" (same class as vold_key / keystore_crash_prop). hermesd registers fine under
+# permissive; its single "add" denial is left as a benign log line. Uncomment on an A13+ base:
+# allow recovery hal_hermes_service:service_manager { add find };
 
 # Keystore2_key operations (FBE decrypt: vold key conversion via KeyMint)
 # NOTE: vold_key type does not exist in Android 12 base. The operations pass in
@@ -179,7 +202,19 @@ allow recovery system_bootstrap_lib_file:file { execute execute_no_trans };
 allow recovery block_device:blk_file ioctl;
 
 # System data root (early /data operations before FBE unlock)
-allow recovery system_data_root_file:dir { write add_name setattr };
+allow recovery system_data_root_file:dir { write add_name setattr ioctl };
+allowxperm recovery system_data_root_file:dir ioctl { 0x6617 };
+
+# Misc benign denials seen live (SM-S931B, all permissive=1):
+#  * block_device:dir create  - A16 vold mkdir's /dev/block subdirs (e.g. "vold") on startup
+#  * cache_file:dir relabelto - TWRP relabels the recovery dir during its mount setup
+#  * system_data_file:dir read - TWRP scans /data (e.g. TWRP/BACKUPS) after the FBE unlock
+#  * proc:file write          - the Samsung /proc/avc_msg node (audit) is unlabeled in the
+#                               A12 base, so it resolves to the generic `proc` type
+allow recovery block_device:dir { create add_name };
+allow recovery cache_file:dir relabelto;
+allow recovery system_data_file:dir r_dir_perms;
+allow recovery proc:file w_file_perms;
 
 # Logd socket (logcat writes)
 allow recovery logdr_socket:sock_file write;
