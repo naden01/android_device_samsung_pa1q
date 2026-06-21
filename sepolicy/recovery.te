@@ -118,6 +118,70 @@ allow recovery self:capability { sys_rawio sys_time fsetid sys_ptrace };
 allow recovery self:capability2 wake_alarm;
 
 #############################################################################
+# Additional rules to silence remaining benign denials (WIP69)
+# These cover edge-case operations that TWRP and the A16 security stack perform
+# during normal operation. All are safe: the device is permissive, and recovery
+# is excluded from dangerous neverallows. Adding these makes logcat 100% clean.
+#############################################################################
+# Loop/DM device ioctls (TWRP super partition mapping via loop devices)
+allow recovery loop_device:blk_file ioctl;
+allow recovery dm_device:blk_file ioctl;
+
+# Rootfs tmpfs operations (TWRP creates temp files/symlinks/pipes on rootfs)
+allow recovery rootfs:dir { write add_name remove_name create setattr relabelfrom relabelto };
+allow recovery rootfs:file { create write setattr };
+allow recovery rootfs:lnk_file { unlink remove_name };
+allow recovery rootfs:fifo_file { create read open };
+
+# Proc/sysfs reads (mount reads /proc/filesystems, ps reads pid_max, keystore2 reads keys)
+allow recovery proc_filesystems:file r_file_perms;
+allow recovery proc_pid_max:file r_file_perms;
+allow recovery proc_keys:file r_file_perms;
+allow recovery selinuxfs:dir { read open };
+
+# Vfat firmware partition search (KeyMint TA searches /vendor/firmware_mnt)
+allow recovery vfat:dir search;
+
+# Tmpfs operations (ADB FIFO pipes, keystore2 DB on tmpfs, ashmem shared memory)
+allow recovery tmpfs:dir { create_dir_perms mounton };
+allow recovery tmpfs:file { create_file_perms ioctl };
+allow recovery tmpfs:fifo_file { create read open };
+allow recovery ashmem_libcutils_device:chr_file execute;
+
+# Service manager (A16 security stack service registration: KeyMint, keystore2, hermesd)
+allow recovery {
+    hal_health_hwservice
+    hal_keymaster_hwservice
+}:hwservice_manager { add find };
+
+allow recovery {
+    keystore_service
+    hal_secureclock_service
+    hal_sharedsecret_service
+    hal_remotelyprovisionedcomponent_service
+    hal_keymint_service
+    apc_service
+    keystore_maintenance_service
+    keystore_metrics_service
+    legacykeystore_service
+}:service_manager { add find };
+
+# Keystore2_key operations (FBE decrypt: vold key conversion via KeyMint)
+allow recovery vold_key:keystore2_key { manage_blob use req_forced_op convert_storage_key_to_ephemeral };
+
+# System bootstrap libs execute (A16 linker64 loads bootstrap libraries)
+allow recovery system_bootstrap_lib_file:file { execute execute_no_trans };
+
+# Block device operations (partition management)
+allow recovery block_device:blk_file ioctl;
+
+# System data root (early /data operations before FBE unlock)
+allow recovery system_data_root_file:dir { write add_name setattr };
+
+# Logd socket (logcat writes)
+allow recovery logdr_socket:sock_file write;
+
+#############################################################################
 # dontaudit, not allow - on purpose:
 #  * unlabeled:file execute - hermesd lives on the RO Android-16 erofs dump; its
 #    file_contexts label `hermesd_exec` (it IS defined in the dump's
