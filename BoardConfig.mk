@@ -53,6 +53,12 @@ BOARD_KERNEL_CMDLINE += bootconfig
 # Universal across the S25 line - written against shared attributes/types only.
 BOARD_VENDOR_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy
 
+# Ignore neverallow violations during recovery build. Required for Android 12+ TWRP:
+# the AOSP platform sepolicy contains neverallowxperm rules (domain.te:362) that
+# conflict with platform's own allow rules. Recovery boots permissive anyway, so
+# neverallow enforcement is advisory only. This is standard practice for recovery.
+SELINUX_IGNORE_NEVERALLOWS := true
+
 BOARD_MKBOOTIMG_ARGS += --dtb $(TARGET_PREBUILT_DTB)
 BOARD_MKBOOTIMG_ARGS += --vendor_cmdline $(BOARD_VENDOR_CMDLINE)
 BOARD_MKBOOTIMG_ARGS += --pagesize $(BOARD_PAGE_SIZE) --board "SRPXG11A004"
