@@ -130,7 +130,7 @@ allow recovery dm_device:blk_file ioctl;
 # Rootfs tmpfs operations (TWRP creates temp files/symlinks/pipes on rootfs)
 allow recovery rootfs:dir { write add_name remove_name create setattr relabelfrom relabelto };
 allow recovery rootfs:file { create write setattr };
-allow recovery rootfs:lnk_file { unlink remove_name };
+allow recovery rootfs:lnk_file { unlink };
 allow recovery rootfs:fifo_file { create read open };
 
 # Proc/sysfs reads (mount reads /proc/filesystems, ps reads pid_max, keystore2 reads keys)
