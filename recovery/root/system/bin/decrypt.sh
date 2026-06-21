@@ -123,7 +123,8 @@ echo "linker=$([ -e "$LK" ] && echo ok || echo MISS) vendor=$([ -e /vendor/bin/q
 if [ ! -e /vendor/etc/vintf/manifest.xml ]; then
     rm -rf /tmp/vintf_src; mkdir -p /tmp/vintf_src
     cp -a /vendor/etc/vintf/. /tmp/vintf_src/ 2>/dev/null
-    printf '%s\n' '<manifest version="8.0" type="device" />' > /tmp/vintf_src/manifest.xml
+    printf '%s\n' '<manifest version="4.0" type="device" />' > /tmp/vintf_src/manifest.xml
+    rm -f /tmp/vintf_src/manifest_sun.xml
     # Strip the StrongBox KeyMint declaration. StrongBox is a discrete secure element
     # (Samsung SPU) that is NOT powered/available in recovery, so IKeyMintDevice/strongbox
     # never registers. While it stays DECLARED in VINTF, keystore2 at startup iterates it,
@@ -329,6 +330,9 @@ echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE 
 start_svc decrypt-vold
 wait_run decrypt-vold
 
+# Wait for the cascade-started services to stabilize (first keymint start
+# from vendor rc can crash+respawn before decrypt-keymint takes over cleanly).
+sleep 1
 echo "----- service states -----"
 for s in decrypt-servicemanager decrypt-qseecomd decrypt-keymint decrypt-keystore2 decrypt-bootctl decrypt-vold; do
     echo "  init.svc.$s = $(getprop init.svc.$s)"
