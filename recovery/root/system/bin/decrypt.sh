@@ -275,6 +275,23 @@ n=0; while [ "$n" -lt 20 ] && [ "$(getprop init.svc.decrypt-hermes)" = "running"
 done
 start_svc decrypt-hermes
 
+# VINTF-overlay readiness gate for KeyMint (WIP70, fixes the early SIGABRT cascade). The A16
+# servicemanager (637) must FINISH reading the VINTF manifest BEFORE keymint tries to register
+# IKeyMintDevice/default - else keymint's addService gets status=-3 (manifest not found) ->
+# SIGABRT. servicemanager.ready=true means sm owns /dev/binder, but it reads VINTF *lazily* on
+# the first getTransport or during init service registration - so "ready" alone is not enough.
+# Wait for a marker that proves sm HAS read /vendor/etc/vintf: the "Multiple same specifications"
+# line sm logs when it sees the duplicate strongbox entry we deliberately left in the overlay
+# fragments (the real strongbox fragment is stripped, but if *any* VINTF file has the pattern
+# we'll match). Bounded to 60x0.1s=6s; degrade-safe (a miss just risks the -3, init will respawn).
+n=0
+while [ "$n" -lt 60 ]; do
+    logcat -d -b all 2>/dev/null | grep -q "Multiple same specifications" && break
+    n=$((n + 1)); sleep 0.1
+done
+[ "$n" -ge 60 ] && echo "WARN: VINTF readiness poll timeout - keymint may crash on -3"
+echo "VINTF overlay ready for keymint registration (~$((n * 100))ms)"
+
 start_svc decrypt-keymint
 n=0; while [ "$n" -lt 48 ]; do
     logcat -d 2>/dev/null | grep -q "keymint-service: adding" && { echo "keymint registered"; break; }
@@ -304,8 +321,11 @@ while [ "$w" -lt 300 ]; do
     w=$((w + 1)); sleep 0.2
 done
 echo "keymint TA warm after ~$((w / 5))s (handshake $([ "$w" -lt 300 ] && echo seen || echo TIMEOUT))"
-# TA-SPEED EXPERIMENT readout: build_type the trustlet parsed from the fingerprint this run
-echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build_type->data : [a-z]+" | tail -1)"
+# TA-SPEED EXPERIMENT readout: build_type the trustlet parsed from the fingerprint this run.
+# The trustlet logs "build type : user" (with a space) during cold TA load at tz_app_init.
+# On a warm TA (already loaded earlier this boot) no new line appears -> the grep finds nothing
+# -> empty output (which is diagnostic, not an error: it means the TA is reused, not cold).
+echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build type : [a-z]+" | tail -1 | sed 's/build type : //')"
 start_svc decrypt-vold
 wait_run decrypt-vold
 
@@ -364,7 +384,7 @@ if [ -e "$KDIR/rot" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null; then
         echo "[ROT sync: probe mountFstab to read current device ROT]"
         lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" >/dev/null 2>&1
         if ! grep -qE " /data " /proc/mounts 2>/dev/null; then
-            cur=$(logcat -d -b all 2>/dev/null | grep "checkRotStr current rot value" | tail -1 | sed 's/.*value : *//' | tr -dc '0-9a-fA-F')
+            cur=$(logcat -d -b all 2>/dev/null | grep "getRotStr rot value" | tail -1 | sed 's/.*value : *//' | tr -dc '0-9a-fA-F')
             [ "${#cur}" = "32" ] && printf '%s' "$cur" > "$ROTCACHE"
         fi
     fi
