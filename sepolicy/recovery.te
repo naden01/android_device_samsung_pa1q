@@ -238,3 +238,8 @@ dontaudit init sysfs:file { write open };
 dontaudit init vendor_file:dir create;
 dontaudit vendor_init rootfs:dir { write add_name create };
 dontaudit kernel vfat:dir search;
+
+# TWRP scans /data/data/ after CE unlock (backup size, app check).
+# app_data_file carries MLS categories; recovery is mlstrustedsubject so
+# the MCS constraint is satisfied and a plain allow is sufficient.
+allow recovery app_data_file:dir { getattr open search read };
