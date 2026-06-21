@@ -88,7 +88,6 @@ allow recovery {
     exported_system_prop
     fingerprint_prop
     hwservicemanager_prop
-    keystore_crash_prop
     storage_config_prop
     system_prop
     vendor_default_prop
