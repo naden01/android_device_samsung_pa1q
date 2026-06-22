@@ -61,7 +61,10 @@ done
 echo "mapper wait ~$((n * 500))ms (system_a=$([ -e /dev/block/mapper/system_a ] && echo y || echo n) vendor_a=$([ -e /dev/block/mapper/vendor_a ] && echo y || echo n))"
 # let the TWRP GUI finish its own startup before we stop the A12 servicemanager
 # (we swap in the A16 one) so the swap does not race TWRP's init.
-sleep 3
+# WIP76: reduced from 3s→1s: TWRP is blocked on waitForService(KeyMint) during
+# the entire sm-swap window, so no Binder race exists then; 1s covers the
+# ~100-300ms post-decrypt TWRP resume with a 3-5x margin.
+sleep 1
 
 # 1. mount the real A16 system + vendor (idempotent)
 if [ ! -e "$LK" ]; then
@@ -294,10 +297,28 @@ done
 echo "VINTF overlay ready for keymint registration (~$((n * 100))ms)"
 
 start_svc decrypt-keymint
-n=0; while [ "$n" -lt 48 ]; do
-    logcat -d 2>/dev/null | grep -q "keymint-service: adding" && { echo "keymint registered"; break; }
-    n=$((n + 1)); sleep 0.25
+# WIP76: old poll ("keymint-service: adding") fired on the FIRST-CRASH instance too:
+# keymint logs "adding..." then immediately hits CHECK(status=-3) SIGABRT (VINTF race).
+# That false-positive made decrypt.sh proceed with a dead keymint → init entered its 5s
+# backoff → keystore2/vold stalled for ~5s waiting for a service that wasn't there.
+# Fix A: use "Adding SKeymint X.0 services is done" — only logged after ALL addService()
+#        calls succeed; never appears on the crashed first instance.
+# Fix B: if init enters restarting state, bypass the 5s backoff with an immediate stop+start.
+n=0; while [ "$n" -lt 80 ]; do
+    logcat -d -b all 2>/dev/null | grep -q "Adding SKeymint.*services is done" && {
+        echo "keymint fully registered (~$((n * 100))ms)"; break; }
+    if [ "$(getprop init.svc.decrypt-keymint)" = "restarting" ]; then
+        setprop ctl.stop decrypt-keymint
+        m=0; while [ "$m" -lt 15 ]; do
+            s=$(getprop init.svc.decrypt-keymint)
+            { [ "$s" != "running" ] && [ "$s" != "restarting" ]; } && break
+            m=$((m+1)); sleep 0.05; done
+        setprop ctl.start decrypt-keymint
+        echo "keymint: first-crash detected, bypassed 5s backoff, restarted"
+    fi
+    n=$((n+1)); sleep 0.1
 done
+[ "$n" -ge 80 ] && echo "WARN: keymint poll timeout"
 # keystore2's shared-secret handshake triggers the skeymast TA load - start it immediately so
 # the 43s TZ load begins ASAP (no fixed sleep).
 # Fresh-window baseline: count handshake markers ALREADY in the ring buffer, so the poll
