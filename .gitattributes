@@ -1,5 +1,7 @@
 *.sh text eol=lf
 *.rc text eol=lf
+# source patches must stay LF or `git apply` fails on the build server
+*.patch text eol=lf
 # recovery ramdisk helpers have no .sh extension (remount_watcher/remount_data/password/...)
 # and twrp.flags/fstab are parsed on-device - all must stay LF or the shebang/parser breaks.
 recovery/root/system/bin/* text eol=lf
