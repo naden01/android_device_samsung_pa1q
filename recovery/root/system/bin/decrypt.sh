@@ -444,6 +444,20 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
     "$RP" ro.crypto.fs_crypto_blkdev /dev/block/mapper/userdata 2>/dev/null \
         || setprop ro.crypto.fs_crypto_blkdev /dev/block/mapper/userdata
     echo "ro.crypto.fs_crypto_blkdev=$(getprop ro.crypto.fs_crypto_blkdev) (TWRP sees /data decrypted -> size + no button)"
+
+    # WIP77: bind /sdcard to /data/media/0 for Internal Storage access. Modern Android uses
+    # emulated storage: /data/media/0 holds user files (photos, downloads, ZIPs), and /sdcard
+    # is the standard mount point TWRP expects for "Internal Storage". Without this bind mount,
+    # TWRP shows "Internal Storage (0 MB)" and cannot access user files for Install ZIP / Backup.
+    # This restores full functionality: Install from internal storage, backup to internal storage,
+    # and MTP export all work. The "0 MB" display may persist (TWRP caches size at boot, before
+    # decrypt.sh runs), but it's cosmetic - the actual filesystem access is fully functional.
+    # Manual "Refresh Sizes" in TWRP Backup menu will update the display if needed.
+    mkdir -p /sdcard 2>/dev/null
+    if [ -d /data/media/0 ] && ! grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
+        mount --bind /data/media/0 /sdcard 2>/dev/null \
+            && echo "/sdcard bound to /data/media/0 (Internal Storage now accessible for Install/Backup/MTP)"
+    fi
 else
     echo "/data not mounted - check decrypt.log for the vold mountFstab error"
     # a failed mount with a cached ROT means the cache is stale -> drop it so next boot re-probes
