@@ -9,3 +9,9 @@ export OF_ENABLE_LPTOOLS=1
 export OF_USE_LEGACY_BATTERY_SERVICES=1
 export OF_SCREEN_H=2340
 export FOX_MAINTAINER_PATCH_VERSION="0"
+
+# Apply our TWRP source patches at build time (safe: never fails the build; see
+# patches/apply-patches.sh). Sourced so it sees ANDROID_BUILD_TOP from envsetup.
+if [ -f "$(dirname "${BASH_SOURCE[0]:-$0}")/patches/apply-patches.sh" ]; then
+    . "$(dirname "${BASH_SOURCE[0]:-$0}")/patches/apply-patches.sh"
+fi
