@@ -29,3 +29,13 @@ if [ -e "$LK" ]; then
       exec "$LK" /system/bin/de_keyinstall ) >/tmp/remount.log 2>&1
 fi
 echo "remount_data: /data remounted; fscrypt keyring=$(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
+
+# WIP77: re-bind /sdcard to /data/media/0 after remount. The GUI unmount drops the bind mount
+# (umount /data also unmounts /sdcard), so Internal Storage becomes inaccessible again (Install
+# ZIP shows empty, MTP export stops working). Re-create the bind mount here so the user can
+# Install/Backup/MTP immediately after a GUI Mount without needing a full reboot.
+mkdir -p /sdcard 2>/dev/null
+if [ -d /data/media/0 ] && ! grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
+    mount --bind /data/media/0 /sdcard 2>/dev/null \
+        && echo "remount_data: /sdcard bound to /data/media/0 (Internal Storage restored)"
+fi
