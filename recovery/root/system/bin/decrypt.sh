@@ -458,6 +458,21 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
         mount --bind /data/media/0 /sdcard 2>/dev/null \
             && echo "/sdcard bound to /data/media/0 (Internal Storage now accessible for Install/Backup/MTP)"
     fi
+
+    # WIP80: refresh /data + system sizes NOW (statfs works immediately after mount, before FBE keys).
+    # Moved here from end-of-script so GUI sees correct sizes on first render (no "0 MB" flash).
+    # Synchronous send with retry (wait for orsin FIFO ready, max 3s) replaces the old async `&`.
+    # The patched TWRP (patches/0001-fast-data-size.patch) handles "refreshdatasz" BEFORE fopen(orsout)
+    # so this bare echo>orsin does not block. On an unpatched build this would FREEZE the GUI.
+    for i in 1 2 3 4 5 6; do
+        if [ -p /system/bin/orsin ]; then
+            if printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null; then
+                echo "size refresh sent (attempt $i, early - before FBE keys)"
+                break
+            fi
+        fi
+        sleep 0.5
+    done
 else
     echo "/data not mounted - check decrypt.log for the vold mountFstab error"
     # a failed mount with a cached ROT means the cache is stale -> drop it so next boot re-probes
@@ -533,19 +548,5 @@ fi
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     setprop ctl.start decrypt-watcher
     echo "remount watcher started (decrypt-watcher)"
-fi
-
-# WIP78: tell TWRP to refresh /data + system sizes NOW that /data is mounted. TWRP computed
-# sizes once at startup (before this script ran) -> "Internal Storage (0 MB)". The patched
-# TWRP (see patches/0001-fast-data-size.patch) handles the "refreshdatasz" ORS word with a
-# statfs-only update (no recursive folder walk) so the GUI is NOT frozen, and it handles the
-# word BEFORE fopen(orsout) so a bare echo>orsin (no orsout reader) does not block. Fixes the
-# header, Select-Storage dropdown, and Backup data/system sizes. Backgrounded so the FIFO open
-# never stalls decrypt. NOTE: requires the patched recovery - on an UNPATCHED build this word
-# falls through to the generic handler which fopen()s orsout and FREEZES the GUI, so this build
-# must always carry the patch (it does, via vendorsetup -> patches/apply-patches.sh).
-if grep -qE " /data " /proc/mounts 2>/dev/null && [ -p /system/bin/orsin ]; then
-    ( printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null & ) 2>/dev/null
-    echo "size refresh requested (refreshdatasz -> orsin)"
 fi
 echo "===== decrypt done ====="
