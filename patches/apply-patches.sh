@@ -34,10 +34,21 @@ for patch in "$_SELF"/*.patch; do
     [ -e "$patch" ] || continue
     name="$(basename "$patch")"
 
-    # 1) idempotency: if the unique marker already present, it's applied -> skip.
-    if grep -rq "Update_Data_Size_Fast" "$REC/partitionmanager.cpp" 2>/dev/null; then
-        echo "pa1q-patch: '$name' already applied - skipping"
-        continue
+    # 1) idempotency: each patch carries a UNIQUE marker string that, once present
+    #    in bootable/recovery, means it is already applied -> skip. Keyed per-patch
+    #    (not one global grep) so a second patch is not skipped just because the
+    #    first one is in. marker = "<grep target>:<file under $REC to grep>".
+    case "$name" in
+        0001-fast-data-size.patch)      marker="Update_Data_Size_Fast:partitionmanager.cpp" ;;
+        0002-format-pre-teardown.patch) marker="format_pre.sh:partitionmanager.cpp" ;;
+        *)                              marker="" ;;
+    esac
+    if [ -n "$marker" ]; then
+        mtext="${marker%%:*}"; mfile="${marker##*:}"
+        if grep -rq "$mtext" "$REC/$mfile" 2>/dev/null; then
+            echo "pa1q-patch: '$name' already applied - skipping"
+            continue
+        fi
     fi
 
     # 2) preferred: git apply (clean, exact). --recount ignores the @@ line counts and
