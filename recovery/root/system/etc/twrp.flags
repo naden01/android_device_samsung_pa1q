@@ -1,20 +1,17 @@
 # mount point	    fstype		device			device2			flags
 # Symlinked partitions
-/system_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system		flags=backup=0;slotselect;flashimg;display="System Image"
-/vendor_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor		flags=backup=0;slotselect;flashimg;display="Vendor Image"
-/product_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/product		flags=backup=0;slotselect;flashimg;display="Product Image"
-/odm_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/odm		flags=backup=0;slotselect;flashimg;display="Odm Image"
-/system_ext_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_ext	flags=backup=0;slotselect;flashimg;display="System_EXT Image"
-/vendor_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor_dlkm	flags=backup=0;slotselect;flashimg;display="Vendor_DLKM Image"
-/system_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_dlkm	flags=backup=0;slotselect;flashimg;display="System_DLKM Image"
+/system_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system		flags=backup=1;slotselect;flashimg;display="System Image"
+/vendor_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor		flags=backup=1;slotselect;flashimg;display="Vendor Image"
+/product_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/product		flags=backup=1;slotselect;flashimg;display="Product Image"
+/odm_image		emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/odm		flags=backup=1;slotselect;flashimg;display="Odm Image"
+/system_ext_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_ext	flags=backup=1;slotselect;flashimg;display="System_EXT Image"
+/vendor_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/vendor_dlkm	flags=backup=1;slotselect;flashimg;display="Vendor_DLKM Image"
+/system_dlkm_image	emmc	/dev/block/platform/soc/1d84000.ufshc/by-name/system_dlkm	flags=backup=1;slotselect;flashimg;display="System_DLKM Image"
 
 # Physical partitions
 /boot		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/boot		flags=backup=1;slotselect;flashimg;display="Boot"
 /init_boot	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/init_boot		flags=backup=1;slotselect;flashimg;display="Init Boot"
 /cache		ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/cache		flags=backup=1;display="Cache"
-/persist	ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/persist		flags=backup=1;display="Persist"
-/efs		ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/efs		flags=backup=0;display="Efs"
-/sec_efs		ext4		/dev/block/platform/soc/1d84000.ufshc/by-name/sec_efs		flags=backup=0;display="Sec_Efs"
 
 /efs_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/efs		flags=backup=1;display="EFS"
 /sec_efs_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/sec_efs		flags=backup=1;subpartitionof=/efs_image
@@ -22,6 +19,7 @@
 /fsc		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/fsc		flags=backup=1;subpartitionof=/efs_image
 /modemst1	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/modemst1		flags=backup=1;subpartitionof=/efs_image
 /modemst2	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/modemst2		flags=backup=1;subpartitionof=/efs_image
+/persist_image	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/persist		flags=backup=1;display="Persist"
 
 /firmware	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/apnhlos		flags=backup=1;slotselect;flashimg;display="Apnhlos/NON_HLOS"
 /modem		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/modem		flags=backup=1;slotselect;flashimg;display="Modem"
