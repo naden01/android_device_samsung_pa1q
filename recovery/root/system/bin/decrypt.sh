@@ -538,9 +538,12 @@ fi
 # WIP78: tell TWRP to refresh /data + system sizes NOW that /data is mounted. TWRP computed
 # sizes once at startup (before this script ran) -> "Internal Storage (0 MB)". The patched
 # TWRP (see patches/0001-fast-data-size.patch) handles the "refreshdatasz" ORS word with a
-# statfs-only update (no recursive folder walk) so the GUI is NOT frozen. Fixes the header,
-# Select-Storage dropdown, and Backup data/system sizes. Sent in the background so a not-yet-
-# ready ORS FIFO never blocks decrypt; harmless no-op on an unpatched build (unknown word).
+# statfs-only update (no recursive folder walk) so the GUI is NOT frozen, and it handles the
+# word BEFORE fopen(orsout) so a bare echo>orsin (no orsout reader) does not block. Fixes the
+# header, Select-Storage dropdown, and Backup data/system sizes. Backgrounded so the FIFO open
+# never stalls decrypt. NOTE: requires the patched recovery - on an UNPATCHED build this word
+# falls through to the generic handler which fopen()s orsout and FREEZES the GUI, so this build
+# must always carry the patch (it does, via vendorsetup -> patches/apply-patches.sh).
 if grep -qE " /data " /proc/mounts 2>/dev/null && [ -p /system/bin/orsin ]; then
     ( printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null & ) 2>/dev/null
     echo "size refresh requested (refreshdatasz -> orsin)"
