@@ -1,78 +1,62 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: pa1q device tree <noreply@local>
 Date: Tue, 24 Jun 2026 00:00:00 +0000
-Subject: [PATCH] twrp: fast statfs-only /data+system size refresh via ORS
- (no GUI freeze)
+Subject: [PATCH] twrp: fast statfs-only /data+system size refresh via ORS (no GUI freeze)
 
 PROBLEM
-  TWRP computes partition sizes ONCE at startup (Update_System_Details),
-  which on the S25 (pa1q) runs BEFORE our decrypt.sh has mounted /data.
-  At that point /data is encrypted/absent so Size=Free=0 -> "Internal
-  Storage (0 MB)" forever, because nothing recomputes sizes after the
-  script mounts /data. The only existing recompute is the "Refresh Sizes"
-  button -> Update_System_Details(), which for /data calls
-  Get_Folder_Size() (a recursive walk of every file under /data) and
-  freezes the GUI for 3-5 seconds.
+  TWRP computes partition sizes ONCE at startup (Update_System_Details), which on
+  the S25 (pa1q) runs BEFORE decrypt.sh has mounted /data -> Size=Free=0 -> "Internal
+  Storage (0 MB)" forever. The only recompute (Refresh Sizes button) calls
+  Get_Folder_Size() (a recursive walk of all of /data) -> 3-5s GUI freeze.
+  Storage size itself (Size/Used/Free) is cheap via statfs(); only the
+  Get_Folder_Size() backup estimate is slow, and the two are glued in one function.
 
-  The storage size itself (Size/Used/Free) is actually cheap: it comes
-  from statfs() (Get_Size_Via_statfs), which reads the filesystem
-  superblock counters - microseconds, no file walk. The freeze is purely
-  the Get_Folder_Size() backup-size estimate, which is glued into the same
-  Update_Size() function and cannot be triggered separately via ORS.
+FIX (additive; auto-applied at build via vendorsetup, auto-revertable via git checkout)
+  - partitions.hpp: declare TWPartitionManager::Update_Data_Size_Fast().
+  - partitionmanager.cpp: implement it - statfs() on /data and the mounted system
+    partition, writing BOTH the DataManager display vars (tw_storage_free_size /
+    tw_backup_data_size / tw_backup_system_size) AND the live TWPartition fields
+    (Size/Used/Free/Backup_Size) that the Select-Storage / Backup dropdowns read.
+    No Get_Folder_Size -> zero freeze. (TWPartitionManager is a friend of TWPartition.)
+  - gui/gui.cpp: handle a new ORS word "refreshdatasz" at the TOP of ors_command_read(),
+    BEFORE fopen(ORS_OUTPUT_FILE,"w"). That fopen blocks until a reader opens the orsout
+    FIFO, which a bare `echo refreshdatasz > /system/bin/orsin` (our scripts) never does
+    -> GUI hang. Handling it first and returning (the command writes no reply) avoids it.
 
-FIX (additive, two files, ~40 lines, nothing existing is modified)
-  1) partitions.hpp: declare a new TWPartitionManager method
-     Update_Data_Size_Fast().
-  2) partitionmanager.cpp: implement it - statfs() on /data (and the
-     mounted system partition), write BOTH the DataManager display vars
-     (tw_storage_free_size / tw_backup_data_size / tw_backup_system_size)
-     AND the live TWPartition fields (Size/Used/Free/Backup_Size). The
-     latter is what the Select-Storage and Backup dropdowns read on the
-     fly in Get_Partition_List(), so they get fixed too. No Get_Folder_Size
-     -> ZERO freeze. TWPartitionManager is already a friend of TWPartition,
-     so it can write the private size fields directly.
-  3) gui/gui.cpp: add a new inline ORS command word "refreshdatasz",
-     handled in the same fast path as dumpstrings/reloadtheme - i.e. WITHOUT
-     setting tw_busy, so the GUI is never blocked.
+  decrypt.sh / remount_data send `echo refreshdatasz > /system/bin/orsin` after a
+  successful mount. Freeze-free on both first decrypt and GUI remount. "Internal
+  Storage" IS the /data partition (Setup_Data_Media), so updating dat->Free fixes
+  the storage dropdown directly.
 
-  Our ramdisk scripts then send `echo refreshdatasz > /system/bin/orsin`
-  after a successful /data mount (decrypt.sh) and after a GUI remount
-  (remount_data). Instant, freeze-free, on both first decrypt and remount.
-
-  "Internal Storage" on this device IS the /data partition itself
-  (Setup_Data_Media sets Is_Storage on /data), so updating dat->Free fixes
-  the storage dropdown directly - there is no separate storage object.
-
-  Files touched (for revert):
-    bootable/recovery/partitions.hpp
-    bootable/recovery/partitionmanager.cpp
-    bootable/recovery/gui/gui.cpp
+  Files (for revert): bootable/recovery/{partitions.hpp,partitionmanager.cpp,gui/gui.cpp}
 ---
- partitionmanager.cpp | 35 +++++++++++++++++++++++++++++++++++
- partitions.hpp       |  1 +
- gui/gui.cpp          |  4 ++++
- 3 files changed, 40 insertions(+)
-
-diff --git a/partitions.hpp b/partitions.hpp
-index 1111111..2222222 100644
---- a/partitions.hpp
-+++ b/partitions.hpp
-@@ -351,6 +351,7 @@ public:
- 	int Repair_By_Path(string Path, bool Display_Error);                      // Repairs a partition based on path
- 	int Resize_By_Path(string Path, bool Display_Error);                      // Resizes a partition based on path
- 	void Update_System_Details();                                             // Updates fstab, file systems, sizes, etc.
-+	void Update_Data_Size_Fast();                                             // statfs-only refresh of /data (+system) sizes - no folder walk, no GUI freeze (pa1q)
- 	int Decrypt_Device(string Password, int user_id = 0);                     // Attempt to decrypt any encrypted partitions
- 	void Parse_Users();                                                       // Parse FBE users
- 	int usb_storage_enable(void);                                             // Enable USB storage mode
+diff --git a/gui/gui.cpp b/gui/gui.cpp
+index 874cdd9..91508ee 100644
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -460,6 +460,14 @@ static void ors_command_read()
+ 		command[1022] = '\n';
+ 		command[1023] = '\0';
+ 		LOGINFO("Command '%s' received\n", command);
++		// pa1q: handle our self-contained size-refresh word BEFORE opening the orsout
++		// FIFO. fopen(orsout,"w") below blocks until a reader opens orsout, which a bare
++		// `echo refreshdatasz > orsin` (decrypt.sh/remount_data) never does -> GUI hang.
++		// This command writes no reply, so run it here and return; orsout is untouched.
++		if (strncmp(command, "refreshdatasz", 13) == 0) {
++			PartitionManager.Update_Data_Size_Fast();
++			return;
++		}
+ 		orsout = fopen(ORS_OUTPUT_FILE, "w");
+ 		if (!orsout) {
+ 			close(ors_read_fd);
 diff --git a/partitionmanager.cpp b/partitionmanager.cpp
-index 3333333..4444444 100644
+index 2766b4c..077097e 100644
 --- a/partitionmanager.cpp
 +++ b/partitionmanager.cpp
-@@ -1952,6 +1952,41 @@ void TWPartitionManager::Update_System_Details(void) {
+@@ -1953,6 +1953,42 @@ void TWPartitionManager::Update_System_Details(void) {
  	return;
  }
-
+ 
 +// pa1q: statfs-only refresh of /data (and the mounted system partition) sizes.
 +// Updates both the DataManager display vars AND the live TWPartition size fields
 +// (Select-Storage / Backup dropdowns read the live fields), WITHOUT the recursive
@@ -111,19 +95,16 @@ index 3333333..4444444 100644
 +
  void TWPartitionManager::Post_Decrypt(const string& Block_Device) {
  	TWPartition* dat = Find_Partition_By_Path("/data");
-
-diff --git a/gui/gui.cpp b/gui/gui.cpp
-index 5555555..6666666 100644
---- a/gui/gui.cpp
-+++ b/gui/gui.cpp
-@@ -479,6 +479,10 @@ static void ors_command_read()
- 			} else if (strlen(command) == 11 && strncmp(command, "reloadtheme", 11) == 0) {
- 				PageManager::RequestReload();
- 				ors_command_done();
-+			} else if (strncmp(command, "refreshdatasz", 13) == 0) {
-+				// pa1q: fast statfs-only /data+system size refresh, no GUI freeze (no tw_busy)
-+				PartitionManager.Update_Data_Size_Fast();
-+				ors_command_done();
- 			} else if (strlen(command) > 11 && strncmp(command, "changepage=", 11) == 0) {
- 				char* pg = &command[11];
- 				gui_changePage(pg);
+ 
+diff --git a/partitions.hpp b/partitions.hpp
+index 843dfe5..6f95eef 100644
+--- a/partitions.hpp
++++ b/partitions.hpp
+@@ -352,6 +352,7 @@ public:
+ 	int Repair_By_Path(string Path, bool Display_Error);                      // Repairs a partition based on path
+ 	int Resize_By_Path(string Path, bool Display_Error);                      // Resizes a partition based on path
+ 	void Update_System_Details();                                             // Updates fstab, file systems, sizes, etc.
++	void Update_Data_Size_Fast();                                             // statfs-only refresh of /data (+system) sizes - no folder walk, no GUI freeze (pa1q)
+ 	int Decrypt_Device(string Password, int user_id = 0);                     // Attempt to decrypt any encrypted partitions
+ 	void Parse_Users();                                                       // Parse FBE users
+ 	int usb_storage_enable(void);                                             // Enable USB storage mode
