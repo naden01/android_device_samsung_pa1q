@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pa1q device tree <noreply@local>
+Date: Tue, 24 Jun 2026 00:00:00 +0000
+Subject: [PATCH] twrp: run pre-format teardown script before Wipe_Encryption
+
+PROBLEM
+  "Wipe > Format Data > yes" fails on pa1q. make_f2fs targets the raw userdata
+  block but the kernel reports "In use by the system!" (ERROR 255), preceded by
+  "Error deleting crypto block device, continuing anyway."
+
+  decrypt.sh mounts the dm-default-key device (mapper/userdata, a dm layer over
+  the raw userdata block) at /data, and ALSO bind-mounts /sdcard -> /data/media/0
+  (WIP77, for Internal Storage). Format_Data -> Wipe_Encryption() unmounts TWRP's
+  own /data but does NOT know about our /sdcard bind, so the dm device stays held
+  -> delete_crypto_blk_dev() fails -> the raw block is still busy -> make_f2fs
+  aborts. (The user's only workaround was wipe metadata+data -> reboot -> format.)
+
+FIX (additive; auto-applied at build via vendorsetup, auto-revertable via git checkout)
+  Run /system/bin/format_pre.sh at the very start of Format_Data(), BEFORE
+  dat->Wipe_Encryption(). The script drops the /sdcard bind, unmounts /data and
+  tears down the dm-default-key device (dmctl delete userdata), so the raw block
+  has zero holders by the time delete_crypto_blk_dev + mkfs run. Proven live: the
+  block's holders go to NONE after the teardown and mkfs then succeeds. Uses the
+  same TWFunc::check_and_run_script mechanism TWRP already uses for the existing
+  post-wipe /system/bin/formatdata.sh hook, so it is a no-op if the script is absent.
+
+  Files (for revert): bootable/recovery/partitionmanager.cpp
+---
+diff --git a/partitionmanager.cpp b/partitionmanager.cpp
+index 077097e..0aa1b2c 100644
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1762,6 +1762,11 @@ int TWPartitionManager::Format_Data(void) {
+ 	TWPartition* dat = Find_Partition_By_Path("/data");
+ 	TWPartition* metadata = Find_Partition_By_Path("/metadata");
+ 	int ret = false;
++	// pa1q: free the raw userdata block before Wipe_Encryption(). decrypt.sh holds
++	// it via the dm-default-key device mounted at /data AND a /sdcard bind TWRP does
++	// not track, so without this teardown delete_crypto_blk_dev + mkfs fail with
++	// "In use by the system!". The script is best-effort and a no-op if not present.
++	TWFunc::check_and_run_script("/system/bin/format_pre.sh", "Pre-Format Teardown");
+ 	if (metadata != NULL)
+ 		metadata->UnMount(false);
+
