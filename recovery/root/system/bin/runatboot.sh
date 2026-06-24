@@ -60,8 +60,5 @@ mnt_fstab /vendor_dlkm
 
 # --- Physical utility partitions (read-only) --------------------------------
 mnt_dev cache   /cache
-mnt_dev persist /persist
-mnt_dev efs     /efs
-mnt_dev sec_efs /sec_efs
 
 echo "===== runatboot done ====="
