@@ -40,10 +40,19 @@ if [ -d /data/media/0 ] && ! grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
         && echo "remount_data: /sdcard bound to /data/media/0 (Internal Storage restored)"
 fi
 
-# WIP78: refresh /data + system sizes after the GUI remount (statfs-only, no freeze). Same
+# WIP80: refresh /data + system sizes after GUI remount (statfs-only, no freeze). Same
 # "refreshdatasz" ORS word the patched TWRP handles BEFORE fopen(orsout) - see
-# patches/0001-fast-data-size.patch. Backgrounded. Requires the patched recovery (this build
-# carries it via vendorsetup); on an unpatched build this word would freeze the GUI.
-if grep -qE " /data " /proc/mounts 2>/dev/null && [ -p /system/bin/orsin ]; then
-    ( printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null & ) 2>/dev/null
+# patches/0001-fast-data-size.patch. Synchronous send with retry (up to 1.5s) replaces the old
+# async `&`. Requires the patched recovery (this build carries it via vendorsetup); on an
+# unpatched build this word would freeze the GUI.
+if grep -qE " /data " /proc/mounts 2>/dev/null; then
+    for i in 1 2 3; do
+        if [ -p /system/bin/orsin ]; then
+            if printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null; then
+                echo "remount_data: size refresh sent (attempt $i)"
+                break
+            fi
+        fi
+        sleep 0.5
+    done
 fi
