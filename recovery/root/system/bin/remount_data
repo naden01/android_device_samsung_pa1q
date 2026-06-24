@@ -41,9 +41,9 @@ if [ -d /data/media/0 ] && ! grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
 fi
 
 # WIP78: refresh /data + system sizes after the GUI remount (statfs-only, no freeze). Same
-# "refreshdatasz" ORS word the patched TWRP handles - see patches/0001-fast-data-size.patch.
-# Backgrounded; harmless no-op on an unpatched build. Keeps Internal Storage size correct
-# after an unmount/Mount cycle without a reboot.
+# "refreshdatasz" ORS word the patched TWRP handles BEFORE fopen(orsout) - see
+# patches/0001-fast-data-size.patch. Backgrounded. Requires the patched recovery (this build
+# carries it via vendorsetup); on an unpatched build this word would freeze the GUI.
 if grep -qE " /data " /proc/mounts 2>/dev/null && [ -p /system/bin/orsin ]; then
     ( printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null & ) 2>/dev/null
 fi
