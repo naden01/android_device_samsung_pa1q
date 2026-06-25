@@ -35,5 +35,8 @@
 /imagefv	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/imagefv
 /vm-bootsys	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vm-bootsys		flags=backup=1;slotselect;flashimg;display="Vm_Bootsys Image"
 
+# FBE metadata partition (backup essential for data restore)
+/metadata	f2fs		/dev/block/platform/soc/1d84000.ufshc/by-name/metadata		flags=backup=1;display="Metadata"
+
 # Removable storage
 /usb-otg	auto		/dev/block/sde1	/dev/block/sde			flags=display="USB-OTG";storage;wipeingui;removable
