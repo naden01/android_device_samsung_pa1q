@@ -139,6 +139,7 @@ TW_INCLUDE_CRYPTO_FBE := true
 BOARD_USES_QCOM_FBE_DECRYPTION := true
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
+TW_SKIP_ADDITIONAL_FSTAB := true
 
 # Custom recovery binary: apexservice stub for the A16-stack /data decrypt. The A16
 # keystore2 (run from the firmware dump by decrypt.sh) blocks during startup on
