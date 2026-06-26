@@ -549,4 +549,17 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
     setprop ctl.start decrypt-watcher
     echo "remount watcher started (decrypt-watcher)"
 fi
+
+# WIP84: start the stock thermal-engine with our step-wise CPU config now that /vendor
+# is mounted (the binary + libs live there). Independent of /data - thermal must run
+# regardless. The engine actuates the kernel cpufreq cooling devices the DTS leaves
+# unmapped, so the prime cluster no longer pins 4.5GHz / 105C under load. Best-effort:
+# a missing binary/config must never block decrypt. See decrypt-thermal in the rc and
+# /system/etc/thermal-engine-recovery.conf.
+if [ -e /vendor/bin/thermal-engine-v2 ] && [ -e /system/etc/thermal-engine-recovery.conf ]; then
+    setprop ctl.start decrypt-thermal
+    echo "thermal-engine started (decrypt-thermal, SS CPU throttle @85C)"
+else
+    echo "thermal-engine skipped (binary or config missing)"
+fi
 echo "===== decrypt done ====="
