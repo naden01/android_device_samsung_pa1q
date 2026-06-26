@@ -34,6 +34,7 @@
 /vbmeta		emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vbmeta		flags=backup=1;slotselect;flashimg;display="Vbmeta"
 /imagefv	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/imagefv
 /vm-bootsys	emmc		/dev/block/platform/soc/1d84000.ufshc/by-name/vm-bootsys		flags=backup=1;slotselect;flashimg;display="Vm_Bootsys Image"
+/metadata	f2fs		/dev/block/platform/soc/1d84000.ufshc/by-name/metadata		flags=backup=1;flashimg;display="Metadata"
 
 # Removable storage
 /usb-otg	auto		/dev/block/sde1	/dev/block/sde			flags=display="USB-OTG";storage;wipeingui;removable
