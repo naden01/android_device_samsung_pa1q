@@ -321,6 +321,24 @@ service decrypt-watcher /system/bin/remount_watcher
     seclabel u:r:recovery:s0
     disabled
 
+# Thermal throttling (WIP84): run the STOCK /vendor/bin/thermal-engine-v2 with our
+# step-wise CPU config. Without it, walt still bursts the prime cluster to 4.5GHz and
+# nothing throttles until the kernel's lone 118C cpu-pause map -> 104-105C under load
+# (e.g. a backup). The engine reads /system/etc/thermal-engine-recovery.conf and actuates
+# the kernel cpufreq cooling devices (cpufreq-cpu0/cpu6) the DTS leaves unmapped, lowering
+# cluster max-freq past 85C and releasing on cooldown - the OFFICIAL Qualcomm mechanism.
+# Needs the A16 /vendor mounted (binary lives there), so decrypt.sh ctl.starts it AFTER the
+# vendor mount, same as decrypt-watcher. Launched DIRECTLY (NOT via hal_run.sh): this is a
+# vendor/A12-side binary linking the stock /vendor/lib64 libs; hal_run.sh forces the A16
+# /decrypt linker + libs first, which ABI-clashes and the daemon dies right after init
+# (verified live - direct launch stays alive, hal_run launch exits). Proven live: 105.5C -> 82.6C.
+service decrypt-thermal /vendor/bin/thermal-engine-v2 -c /system/etc/thermal-engine-recovery.conf
+    class main
+    user root
+    group root system
+    seclabel u:r:recovery:s0
+    disabled
+
 
    
 
