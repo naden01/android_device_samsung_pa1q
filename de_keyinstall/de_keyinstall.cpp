@@ -170,7 +170,7 @@ struct fscrypt_get_policy_ex_arg_local {
         __u8 __pad[64];
     } policy;
 };
-#define FS_IOC_GET_ENCRYPTION_POLICY_EX_LOCAL _IOWR('f', 22, __u8[68])
+#define FS_IOC_GET_ENCRYPTION_POLICY_EX_LOCAL _IOWR('f', 22, __u8[9])
 
 namespace {
 
@@ -277,8 +277,8 @@ int getPolicyOfDir(const std::string& dir) {
     int e = errno;
     close(dfd);
     if (rc != 0) {
-        if (e == ENODATA || e == ENOTTY) {
-            LINE("NONE\t%s", dir.c_str());  // no policy on this dir
+        if (e == ENODATA) {
+            LINE("NONE\t%s", dir.c_str());  // dir genuinely has no encryption policy
             return 0;
         }
         LINE("getpolicy: ioctl on %s failed: errno=%d (%s)", dir.c_str(), e, strerror(e));
