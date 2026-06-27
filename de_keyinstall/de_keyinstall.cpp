@@ -127,6 +127,27 @@ struct fscrypt_add_key_arg_local {
 #define FS_IOC_ADD_ENCRYPTION_KEY_LOCAL \
     _IOWR('f', 23, struct fscrypt_add_key_arg_local)
 
+// ---- fscrypt v2 policy (staged restore: stamp empty dir before files land) ------
+// FBE policy is NOT a secret - it's a 16-byte pointer to a key already in the keyring.
+// Kernel rule: FS_IOC_SET_ENCRYPTION_POLICY only works on an EMPTY dir. So restore flow:
+// mkdir empty -> setpolicy(dir, key_identifier) -> THEN extract files into it.
+// The identifier is what FS_IOC_ADD_ENCRYPTION_KEY returns (de_keyinstall prints "kernel id=").
+#define FSCRYPT_POLICY_V2_LOCAL 2
+#define FSCRYPT_MODE_AES_256_XTS_LOCAL 1
+#define FSCRYPT_MODE_AES_256_CTS_LOCAL 4
+// flags 0x0a matches /data/unencrypted/mode "v2+inlinecrypt_optimized+wrappedkey_v0" on pa1q
+// (PAD_16=0x2 | IV_INO_LBLK_OPTIMIZED=0x8).
+#define FSCRYPT_POLICY_FLAGS_PA1Q 0x0a
+struct fscrypt_policy_v2_local {
+    __u8 version;
+    __u8 contents_encryption_mode;
+    __u8 filenames_encryption_mode;
+    __u8 flags;
+    __u8 __reserved[4];
+    __u8 master_key_identifier[16];
+};
+#define FS_IOC_SET_ENCRYPTION_POLICY_LOCAL _IOR('f', 19, struct fscrypt_policy_v2_local)
+
 namespace {
 
 const int kGcmNonceLen = 12;
@@ -161,6 +182,59 @@ std::string hex(const uint8_t* p, size_t n) {
         s.push_back(d[p[i] & 0xf]);
     }
     return s;
+}
+
+// Decode a hex string into bytes. Returns false on odd length or non-hex char.
+bool unhex(const std::string& s, std::vector<uint8_t>* out) {
+    if (s.size() % 2 != 0) return false;
+    out->clear();
+    out->reserve(s.size() / 2);
+    auto nib = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    for (size_t i = 0; i < s.size(); i += 2) {
+        int hi = nib(s[i]), lo = nib(s[i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out->push_back(static_cast<uint8_t>((hi << 4) | lo));
+    }
+    return true;
+}
+
+// setpolicy mode: stamp an EMPTY directory with a v2 FBE policy pointing at key_id_hex
+// (a 16-byte identifier already present in the kernel keyring from FS_IOC_ADD_ENCRYPTION_KEY).
+// Returns 0 on success. Used by the staged restore: mkdir -> setPolicyOnDir -> extract files.
+int setPolicyOnDir(const std::string& dir, const std::string& keyIdHex) {
+    std::vector<uint8_t> id;
+    if (!unhex(keyIdHex, &id) || id.size() != KEY_IDENTIFIER_SIZE) {
+        LINE("setpolicy: bad key id '%s' (need 32 hex chars = 16 bytes)", keyIdHex.c_str());
+        return 22;  // EINVAL
+    }
+    struct fscrypt_policy_v2_local pol;
+    memset(&pol, 0, sizeof(pol));
+    pol.version = FSCRYPT_POLICY_V2_LOCAL;
+    pol.contents_encryption_mode = FSCRYPT_MODE_AES_256_XTS_LOCAL;
+    pol.filenames_encryption_mode = FSCRYPT_MODE_AES_256_CTS_LOCAL;
+    pol.flags = FSCRYPT_POLICY_FLAGS_PA1Q;
+    memcpy(pol.master_key_identifier, id.data(), KEY_IDENTIFIER_SIZE);
+
+    int dfd = open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dfd < 0) {
+        LINE("setpolicy: open(%s) failed: %s", dir.c_str(), strerror(errno));
+        return errno ? errno : 1;
+    }
+    int rc = ioctl(dfd, FS_IOC_SET_ENCRYPTION_POLICY_LOCAL, &pol);
+    int e = errno;
+    close(dfd);
+    if (rc != 0) {
+        LINE("setpolicy: FS_IOC_SET_ENCRYPTION_POLICY on %s failed: errno=%d (%s)", dir.c_str(),
+             e, strerror(e));
+        return e ? e : 1;
+    }
+    LINE("setpolicy: %s -> key %s OK", dir.c_str(), keyIdHex.c_str());
+    return 0;
 }
 
 // LSS SyntheticPasswordCrypto.personalizedHash: SHA-512( pad128(personalization) || data... ).
@@ -742,6 +816,17 @@ static bool dirReadable(const char* path) {
 }
 
 int main(int argc, char** argv) {
+    // Subcommand: setpolicy <dir> <key_id_hex> - stamp an empty dir with a v2 FBE policy.
+    // No KeyMint needed; the key must already be in the keyring (from a prior install run).
+    // Used by the staged restore flow to mark dirs before files are extracted into them.
+    if (argc >= 2 && std::string(argv[1]) == "setpolicy") {
+        if (argc != 4) {
+            LINE("usage: de_keyinstall setpolicy <dir> <key_id_hex32>");
+            return 22;
+        }
+        return setPolicyOnDir(argv[2], argv[3]);
+    }
+
     // Optional arg: the lockscreen credential (PIN/password). Empty => empty-LSKF path.
     std::string pin = (argc > 1 && argv[1] != nullptr) ? std::string(argv[1]) : std::string();
     LINE("===== de_keyinstall start =====");
