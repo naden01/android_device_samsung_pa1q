@@ -181,7 +181,7 @@ fi
 # Verify /data is now on the mapper device
 echo "Step 6: verifying /data is on mapper/userdata..."
 grep " /data " /proc/mounts || echo "ERROR: /data not mounted at all"
-if ! grep -qE " /data .*mapper/userdata" /proc/mounts 2>/dev/null; then
+if ! grep -qE " /data .*/mapper/userdata" /proc/mounts 2>/dev/null; then
     echo "ERROR: /data not on mapper/userdata after mount"
     grep " /data " /proc/mounts
     exit 1
