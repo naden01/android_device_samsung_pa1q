@@ -41,3 +41,4 @@
 
  	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
  	twrpTar tar;
+ 	tar.part_settings = part_settings;
