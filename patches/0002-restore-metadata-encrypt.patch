@@ -21,7 +21,7 @@
 +			int ret = TWFunc::Exec_Cmd(hook, result, true);  // capture output, show in log
 +			if (ret != 0) {
 +				LOGERR("Pre-restore hook failed (exit %d):\n%s\n", ret, result.c_str());
-+				gui_err(Msg(msg::kError, "restore_prereq_fail=Failed to prepare /data for restore. "
++				gui_msg(Msg(msg::kError, "restore_prereq_fail=Failed to prepare /data for restore. "
 +				                         "The metadata encryption layer could not be set up. "
 +				                         "Check /tmp/pre_restore_data.log for details."));
 +				return false;
