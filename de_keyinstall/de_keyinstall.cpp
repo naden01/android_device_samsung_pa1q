@@ -277,12 +277,12 @@ int getPolicyOfDir(const std::string& dir) {
     int e = errno;
     close(dfd);
     if (rc != 0) {
-        if (e == ENODATA) {
-            LINE("NONE\t%s", dir.c_str());  // dir genuinely has no encryption policy
-            return 0;
-        }
-        LINE("getpolicy: ioctl on %s failed: errno=%d (%s)", dir.c_str(), e, strerror(e));
-        return e ? e : 1;
+        // DEBUG (WIP105): always show raw errno so we can tell ENODATA(61)/ENOTTY(25)/
+        // EINVAL(22)/EOVERFLOW(75) apart. ENODATA = genuinely no policy; anything else = bug.
+        LINE("getpolicy: %s rc=%d errno=%d (%s) size_out=%llu %s", dir.c_str(), rc, e,
+             strerror(e), (unsigned long long)arg.policy_size,
+             e == ENODATA ? "[NONE: no policy]" : "[ERROR]");
+        return 0;
     }
     if (arg.policy.version != FSCRYPT_POLICY_V2_LOCAL) {
         LINE("getpolicy: %s is v%d (not v2) - unexpected", dir.c_str(), arg.policy.version);
