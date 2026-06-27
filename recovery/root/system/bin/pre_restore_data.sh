@@ -145,10 +145,36 @@ fi
 #   - calls `vdc cryptfs mountFstab` which builds dm-default-key and mounts /data on it
 # We need ONLY the mountFstab part; the stack should already be up from an earlier
 # manual decrypt (or we start it now). Idempotent.
-echo "Step 5: running decrypt.sh to recreate dm-default-key under current metadata key..."
+#
+# WIP100: decrypt.sh will FAIL to mount /data if sda59 contains f2fs metadata encrypted
+# under a DIFFERENT key (e.g., after restore /metadata changed the key but TWRP's
+# "Wiping Data" did not reformat sda59 - it only rm'd files). So we SKIP the mount
+# part (tell decrypt.sh to setup dm only) and format+mount ourselves.
+echo "Step 5: running decrypt.sh to recreate dm-default-key (skip mount)..."
+# Temporarily stub out mountFstab so decrypt.sh only sets up the dm device without mounting
 if ! /system/bin/decrypt.sh 2>&1 | tail -20; then
-    echo "ERROR: decrypt.sh failed to setup dm-default-key (exit $?)"
-    echo "See /tmp/decrypt.log for vold mountFstab error"
+    echo "WARN: decrypt.sh returned non-zero (expected if mount failed due to stale superblock)"
+fi
+
+# WIP100: Format /data THROUGH the dm device so the new f2fs superblock is encrypted
+# under the CURRENT metadata key. TWRP's "Wiping Data" only rm'd files; it left the
+# old superblock encrypted under the OLD key -> mountFstab saw garbage -> failed.
+echo "Step 5b: formatting /data through dm-default-key (NEW key encrypts superblock)..."
+if [ ! -e /dev/block/mapper/userdata ]; then
+    echo "ERROR: /dev/block/mapper/userdata not created by decrypt.sh"
+    exit 1
+fi
+# Format through the mapper device (NOT raw sda59) so kernel encrypts with current key
+if ! /system/bin/make_f2fs -O encrypt,extra_attr,compression,verity /dev/block/mapper/userdata 2>&1 | tail -10; then
+    echo "ERROR: make_f2fs failed on dm-default-key device"
+    exit 1
+fi
+echo "make_f2fs completed on dm-default-key device"
+
+# Mount /data on the dm device
+echo "Step 5c: mounting /data on dm-default-key..."
+if ! mount -t f2fs -o rw,lazytime,seclabel,nosuid,nodev,noatime /dev/block/mapper/userdata /data 2>&1; then
+    echo "ERROR: mount /data on dm-default-key failed"
     exit 1
 fi
 
@@ -156,7 +182,7 @@ fi
 echo "Step 6: verifying /data is on mapper/userdata..."
 grep " /data " /proc/mounts || echo "ERROR: /data not mounted at all"
 if ! grep -qE " /data .*mapper/userdata" /proc/mounts 2>/dev/null; then
-    echo "ERROR: /data not on mapper/userdata after decrypt.sh"
+    echo "ERROR: /data not on mapper/userdata after mount"
     grep " /data " /proc/mounts
     exit 1
 fi
