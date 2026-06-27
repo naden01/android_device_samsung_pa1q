@@ -97,27 +97,46 @@ fi
 # format_pre.sh teardown (proven live 2026-06-24).
 
 # 1) drop the /sdcard bind (orphan mount TWRP doesn't track; it pins the dm device)
+echo "Step 1: checking /sdcard mount..."
 if grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
-    umount /sdcard 2>/dev/null && echo "umount /sdcard ok" || echo "umount /sdcard failed (continuing)"
+    echo "/sdcard is mounted, unmounting..."
+    umount /sdcard 2>&1 && echo "umount /sdcard ok" || echo "umount /sdcard failed (continuing)"
+else
+    echo "/sdcard not mounted, skip"
 fi
 
 # 2) unmount /data (whether on raw sda59 or the dm device)
+echo "Step 2: checking /data mount..."
+grep " /data " /proc/mounts || echo "/data not mounted"
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
-    umount /data 2>/dev/null && echo "umount /data ok" || echo "umount /data failed (continuing)"
+    echo "/data is mounted, unmounting..."
+    umount /data 2>&1 && echo "umount /data ok" || echo "umount /data failed (continuing)"
+else
+    echo "/data not mounted, skip"
 fi
 
 # 3) tear down the orphan dm-default-key device so vold can recreate it under the
 #    current metadata key. dmctl ships in the A16 dump used by decrypt.sh.
+echo "Step 3: checking dm-default-key device..."
+ls -la /dev/block/mapper/userdata 2>&1 || echo "userdata dm device not found"
 DMCTL=/decrypt/system/bin/dmctl
+echo "DMCTL path: $DMCTL, exists: $([ -x "$DMCTL" ] && echo yes || echo no)"
 if [ -e /dev/block/mapper/userdata ] && [ -x "$DMCTL" ]; then
-    LD_LIBRARY_PATH=/decrypt/system/lib64:/decrypt/system/bin "$DMCTL" delete userdata 2>/dev/null \
-        && echo "dmctl delete userdata ok" || echo "dmctl delete userdata failed (continuing)"
+    echo "Deleting orphan dm device userdata..."
+    LD_LIBRARY_PATH=/decrypt/system/lib64:/decrypt/system/bin "$DMCTL" delete userdata 2>&1 \
+        && echo "dmctl delete userdata ok" || echo "dmctl delete userdata failed (exit $?)"
+else
+    echo "Skip dmctl: userdata not exists or dmctl not executable"
 fi
 
 # 4) confirm the raw userdata block is free (no holders = ready for fresh dm)
+echo "Step 4: final /data mount check..."
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "ERROR: /data still mounted after teardown - cannot proceed"
+    grep " /data " /proc/mounts
     exit 1
+else
+    echo "/data unmounted, ready for decrypt.sh"
 fi
 
 # Run the decrypt.sh A16 stack to setup dm-default-key. The full decrypt.sh does:
@@ -126,17 +145,22 @@ fi
 #   - calls `vdc cryptfs mountFstab` which builds dm-default-key and mounts /data on it
 # We need ONLY the mountFstab part; the stack should already be up from an earlier
 # manual decrypt (or we start it now). Idempotent.
-if ! /system/bin/decrypt.sh; then
-    echo "ERROR: decrypt.sh failed to setup dm-default-key"
+echo "Step 5: running decrypt.sh to recreate dm-default-key under current metadata key..."
+if ! /system/bin/decrypt.sh 2>&1 | tail -20; then
+    echo "ERROR: decrypt.sh failed to setup dm-default-key (exit $?)"
+    echo "See /tmp/decrypt.log for vold mountFstab error"
     exit 1
 fi
 
 # Verify /data is now on the mapper device
+echo "Step 6: verifying /data is on mapper/userdata..."
+grep " /data " /proc/mounts || echo "ERROR: /data not mounted at all"
 if ! grep -qE " /data .*mapper/userdata" /proc/mounts 2>/dev/null; then
     echo "ERROR: /data not on mapper/userdata after decrypt.sh"
     grep " /data " /proc/mounts
     exit 1
 fi
+echo "/data successfully mounted on dm-default-key device"
 
 # Install FBE keys (DE+CE) so libtar's FS_IOC_SET_ENCRYPTION_POLICY succeeds.
 # de_keyinstall reads /data/unencrypted/key (systemwide DE) + /data/misc/vold/user_keys
