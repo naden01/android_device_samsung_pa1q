@@ -160,6 +160,18 @@ struct fscrypt_policy_v1_local {
 };
 #define FS_IOC_SET_ENCRYPTION_POLICY_LOCAL _IOR('f', 19, struct fscrypt_policy_v1_local)
 
+// FS_IOC_GET_ENCRYPTION_POLICY_EX: read the policy of a dir (for building the restore manifest
+// from a live system). arg = [u64 policy_size][policy bytes]. We pass a buffer big enough for v2.
+struct fscrypt_get_policy_ex_arg_local {
+    __u64 policy_size;  // in: buffer size, out: actual size
+    union {
+        __u8 version;
+        struct fscrypt_policy_v2_local v2;
+        __u8 __pad[64];
+    } policy;
+};
+#define FS_IOC_GET_ENCRYPTION_POLICY_EX_LOCAL _IOWR('f', 22, __u8[68])
+
 namespace {
 
 const int kGcmNonceLen = 12;
@@ -246,6 +258,39 @@ int setPolicyOnDir(const std::string& dir, const std::string& keyIdHex) {
         return e ? e : 1;
     }
     LINE("setpolicy: %s -> key %s OK", dir.c_str(), keyIdHex.c_str());
+    return 0;
+}
+
+// getpolicy mode: read a dir's v2 FBE policy and print "key_id  ctsmode  fnmode  flags  <dir>".
+// Used to build the restore manifest from a LIVE system (no guessing which dir is DE vs CE).
+// Prints "NONE <dir>" if the dir has no encryption policy (ENODATA).
+int getPolicyOfDir(const std::string& dir) {
+    int dfd = open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dfd < 0) {
+        LINE("getpolicy: open(%s) failed: %s", dir.c_str(), strerror(errno));
+        return errno ? errno : 1;
+    }
+    struct fscrypt_get_policy_ex_arg_local arg;
+    memset(&arg, 0, sizeof(arg));
+    arg.policy_size = sizeof(arg.policy);
+    int rc = ioctl(dfd, FS_IOC_GET_ENCRYPTION_POLICY_EX_LOCAL, &arg);
+    int e = errno;
+    close(dfd);
+    if (rc != 0) {
+        if (e == ENODATA || e == ENOTTY) {
+            LINE("NONE\t%s", dir.c_str());  // no policy on this dir
+            return 0;
+        }
+        LINE("getpolicy: ioctl on %s failed: errno=%d (%s)", dir.c_str(), e, strerror(e));
+        return e ? e : 1;
+    }
+    if (arg.policy.version != FSCRYPT_POLICY_V2_LOCAL) {
+        LINE("getpolicy: %s is v%d (not v2) - unexpected", dir.c_str(), arg.policy.version);
+        return 0;
+    }
+    LINE("%s\t%u\t%u\t0x%02x\t%s", hex(arg.policy.v2.master_key_identifier, 16).c_str(),
+         arg.policy.v2.contents_encryption_mode, arg.policy.v2.filenames_encryption_mode,
+         arg.policy.v2.flags, dir.c_str());
     return 0;
 }
 
@@ -837,6 +882,15 @@ int main(int argc, char** argv) {
             return 22;
         }
         return setPolicyOnDir(argv[2], argv[3]);
+    }
+
+    // Subcommand: getpolicy <dir> - print the dir's v2 FBE policy (for restore manifest).
+    if (argc >= 2 && std::string(argv[1]) == "getpolicy") {
+        if (argc != 3) {
+            LINE("usage: de_keyinstall getpolicy <dir>");
+            return 22;
+        }
+        return getPolicyOfDir(argv[2]);
     }
 
     // Optional arg: the lockscreen credential (PIN/password). Empty => empty-LSKF path.
