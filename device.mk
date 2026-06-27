@@ -44,6 +44,13 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     de_keyinstall
 
+# Recovery scripts for the device tree (decrypt.sh is the main A16-stack orchestrator;
+# pre_restore_data.sh is a hook TWRP calls before Restore /data to setup dm-default-key
+# + FBE keys so file-based restore writes through the metadata-encryption layer).
+# remount_data/remount_watcher handle GUI unmount/remount without rebooting.
+# password is the CE-unlock helper for PIN/password credentials.
+# All copied to recovery /system/bin/ (already in recovery/root/system/bin/).
+
 # Partitions
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 

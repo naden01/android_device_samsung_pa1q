@@ -1,0 +1,44 @@
+diff --git a/partition.cpp b/partition.cpp
+index 1234567..abcdefg 100644
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -2990,6 +2990,39 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
+ 	// Remount as read/write as needed so we can restore the backup
+ 	if (!ReMount_RW(true))
+ 		return false;
++
++	// WIP85: Pre-restore hook for /data with metadata_encryption - setup dm-default-key layer
++	// so tar writes THROUGH the crypto device (produces ciphertext on raw sda59, not plaintext).
++	// Without this, file-based restore writes plaintext f2fs onto sda59, but Android expects
++	// ciphertext-under-the-/metadata-key there -> decrypts our plaintext into garbage -> bootloop
++	// with fail_cause M04K00R. The hook runs decrypt.sh (or its dm-setup portion) to build the
++	// mapper/userdata device + installs FBE keys so libtar's policy-restore works.
++	if (Mount_Point == "/data" && !Crypto_Key_Location.empty() &&
++	    Crypto_Key_Location.find("metadata") != string::npos) {
++		string hook = "/system/bin/pre_restore_data.sh";
++		if (TWFunc::Path_Exists(hook)) {
++			LOGINFO("Running pre-restore hook for metadata-encrypted /data: %s\n", hook.c_str());
++			gui_msg(Msg("Preparing /data for restore (setting up encryption layer)..."));
++			string result;
++			int ret = TWFunc::Exec_Cmd(hook, result, true);  // capture output, show in log
++			if (ret != 0) {
++				LOGERR("Pre-restore hook failed (exit %d):\n%s\n", ret, result.c_str());
++				gui_err(Msg(msg::kError, "restore_prereq_fail=Failed to prepare /data for restore. "
++				                         "The metadata encryption layer could not be set up. "
++				                         "Check /tmp/pre_restore_data.log for details."));
++				return false;
++			} else {
++				LOGINFO("Pre-restore hook succeeded: dm-default-key + FBE ready\n%s\n", result.c_str());
++			}
++			// After the hook, /data should be mounted on /dev/block/mapper/userdata (the dm device).
++			// Re-detect the actual block device so tar writes to the right mount.
++			Find_Actual_Block_Device();
++			LOGINFO("Actual block device after hook: %s\n", Actual_Block_Device.c_str());
++		} else {
++			LOGINFO("Pre-restore hook %s not found - restore will proceed on raw block (may bootloop)\n", hook.c_str());
++		}
++	}
++
+ 	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
+ 	twrpTar tar;
+ 	tar.part_settings = part_settings;
