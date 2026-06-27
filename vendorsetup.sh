@@ -15,22 +15,44 @@ apply_patch() {
     local target="$2"
 
     if [ ! -f "$patch" ]; then
-        echo "Patch not found: $patch (skipping)"
-        return
+        echo "❌ FATAL: Patch not found: $patch"
+        echo "========================================"
+        echo "  BUILD FAILED: Required patch missing"
+        echo "  This build MUST NOT be released!"
+        echo "========================================"
+        exit 1
     fi
 
     # Check if already applied (look for a marker line from the patch in the target file)
     if grep -q "WIP78.*refreshdatasz\|WIP85.*Pre-restore hook" "$target" 2>/dev/null; then
-        echo "Patch already applied: $patch"
+        echo "✓ Patch already applied: $patch"
         return
     fi
 
     echo "Applying patch: $patch -> $target"
     if patch -p1 -d "$TWRP_ROOT" -N --dry-run < "$patch" >/dev/null 2>&1; then
         patch -p1 -d "$TWRP_ROOT" -N < "$patch"
-        echo "  ✓ Applied successfully"
+        if [ $? -eq 0 ]; then
+            echo "  ✓ Applied successfully"
+        else
+            echo "❌ FATAL: Patch application failed: $patch"
+            echo "========================================"
+            echo "  BUILD FAILED: Critical patch error"
+            echo "  This build MUST NOT be released!"
+            echo "========================================"
+            exit 1
+        fi
     else
-        echo "  ⚠ Patch failed to apply (may already be applied or conflict)"
+        echo "❌ FATAL: Patch dry-run failed: $patch"
+        echo "========================================"
+        echo "  BUILD FAILED: Patch conflicts detected"
+        echo "  File: $target"
+        echo "  This build MUST NOT be released!"
+        echo "========================================"
+        echo ""
+        echo "Detailed error:"
+        patch -p1 -d "$TWRP_ROOT" -N --dry-run < "$patch" 2>&1 | head -20
+        exit 1
     fi
 }
 
