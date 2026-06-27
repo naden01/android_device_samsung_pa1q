@@ -85,10 +85,39 @@ if [ ! -e "$KDIR/keymaster_key_blob" ]; then
     fi
 fi
 
-# Unmount /data if it's on the raw block (sda59) - we'll remount on the dm device
-if grep -qE " /data .*sda59" /proc/mounts 2>/dev/null; then
-    echo "Unmounting /data (currently on raw sda59)"
-    umount /data 2>/dev/null || { echo "ERROR: failed to unmount /data"; exit 1; }
+# WIP98: Full teardown before decrypt.sh so vold can (re)create the dm-default-key
+# device under the current /metadata key. The boot-time decrypt.sh already created a
+# dm-default-key device named "userdata" (dm-N over sda59) keyed with the OLD metadata
+# key, and TWRP's wipe remounted /data on the RAW sda59 while leaving that dm device
+# orphaned in the device-mapper table. vold's create_crypto_blk_dev then fails with
+# "Could not create default-key device userdata" (DM_DEV_CREATE EBUSY) -> mountFstab
+# fails -> /data stays on raw sda59 -> restore writes plaintext -> bootloop. So we must
+# drop the /sdcard bind, unmount /data, AND delete the orphan dm device first; then
+# decrypt.sh recreates it cleanly under the (possibly just-restored) key. Mirrors the
+# format_pre.sh teardown (proven live 2026-06-24).
+
+# 1) drop the /sdcard bind (orphan mount TWRP doesn't track; it pins the dm device)
+if grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
+    umount /sdcard 2>/dev/null && echo "umount /sdcard ok" || echo "umount /sdcard failed (continuing)"
+fi
+
+# 2) unmount /data (whether on raw sda59 or the dm device)
+if grep -qE " /data " /proc/mounts 2>/dev/null; then
+    umount /data 2>/dev/null && echo "umount /data ok" || echo "umount /data failed (continuing)"
+fi
+
+# 3) tear down the orphan dm-default-key device so vold can recreate it under the
+#    current metadata key. dmctl ships in the A16 dump used by decrypt.sh.
+DMCTL=/decrypt/system/bin/dmctl
+if [ -e /dev/block/mapper/userdata ] && [ -x "$DMCTL" ]; then
+    LD_LIBRARY_PATH=/decrypt/system/lib64:/decrypt/system/bin "$DMCTL" delete userdata 2>/dev/null \
+        && echo "dmctl delete userdata ok" || echo "dmctl delete userdata failed (continuing)"
+fi
+
+# 4) confirm the raw userdata block is free (no holders = ready for fresh dm)
+if grep -qE " /data " /proc/mounts 2>/dev/null; then
+    echo "ERROR: /data still mounted after teardown - cannot proceed"
+    exit 1
 fi
 
 # Run the decrypt.sh A16 stack to setup dm-default-key. The full decrypt.sh does:
