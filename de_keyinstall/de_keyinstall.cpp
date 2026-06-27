@@ -146,7 +146,19 @@ struct fscrypt_policy_v2_local {
     __u8 __reserved[4];
     __u8 master_key_identifier[16];
 };
-#define FS_IOC_SET_ENCRYPTION_POLICY_LOCAL _IOR('f', 19, struct fscrypt_policy_v2_local)
+// CRITICAL: the ioctl NUMBER encodes sizeof of the struct it was registered with. The kernel
+// registers FS_IOC_SET_ENCRYPTION_POLICY with the LEGACY v1 struct (12 bytes), so the number
+// must encode size 12 - NOT the v2 struct (24B), or ioctl returns ENOTTY(25). We still PASS a
+// pointer to the v2 struct; the kernel reads the version byte and copies the right size. This
+// is exactly what fscryptctl does. v1 struct below is ONLY for sizing the ioctl number.
+struct fscrypt_policy_v1_local {
+    __u8 version;
+    __u8 contents_encryption_mode;
+    __u8 filenames_encryption_mode;
+    __u8 flags;
+    __u8 master_key_descriptor[8];
+};
+#define FS_IOC_SET_ENCRYPTION_POLICY_LOCAL _IOR('f', 19, struct fscrypt_policy_v1_local)
 
 namespace {
 
