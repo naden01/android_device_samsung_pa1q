@@ -61,7 +61,7 @@ apply_patch() {
 # Only run if the TWRP source tree exists (we're in a TWRP build environment)
 if [ -d "$TWRP_ROOT" ]; then
     echo "pa1q: Applying TWRP patches..."
-    apply_patch "$PATCH_DATA_SIZE" "$TWRP_ROOT/gui/action.cpp"
+    apply_patch "$PATCH_DATA_SIZE" "$TWRP_ROOT/partitions.hpp"
     apply_patch "$PATCH_FORMAT_TEARDOWN" "$TWRP_ROOT/partitionmanager.cpp"
     apply_patch "$PATCH_RESTORE_METADATA" "$TWRP_ROOT/partition.cpp"
 else
