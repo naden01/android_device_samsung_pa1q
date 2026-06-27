@@ -11,8 +11,10 @@
 +	// ciphertext-under-the-/metadata-key there -> decrypts our plaintext into garbage -> bootloop
 +	// with fail_cause M04K00R. The hook runs decrypt.sh (or its dm-setup portion) to build the
 +	// mapper/userdata device + installs FBE keys so libtar's policy-restore works.
-+	if (Mount_Point == "/data" && !Crypto_Key_Location.empty() &&
-+	    Crypto_Key_Location.find("metadata") != string::npos) {
++	// Check: /data mount point AND (Crypto_Key_Location contains "metadata" OR Actual_Block_Device is dm-*)
++	if (Mount_Point == "/data" &&
++	    (!Crypto_Key_Location.empty() && Crypto_Key_Location.find("metadata") != string::npos ||
++	     Actual_Block_Device.find("/dev/block/dm-") != string::npos)) {
 +		string hook = "/system/bin/pre_restore_data.sh";
 +		if (TWFunc::Path_Exists(hook)) {
 +			LOGINFO("Running pre-restore hook for metadata-encrypted /data: %s\n", hook.c_str());

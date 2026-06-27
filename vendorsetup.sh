@@ -10,7 +10,7 @@ PATCH_DATA_SIZE="$DEVICE_PATH/patches/0001-fast-data-size.patch"
 # WIP82: format data pre-teardown (umount /sdcard + dmctl delete userdata)
 PATCH_FORMAT_TEARDOWN="$DEVICE_PATH/patches/0002-format-pre-teardown.patch"
 # WIP85: restore with metadata re-encryption (writes through dm-default-key layer)
-PATCH_RESTORE_METADATA="$DEVICE_PATH/patches/0002-restore-metadata-encrypt.patch"
+PATCH_RESTORE_METADATA="$DEVICE_PATH/patches/0003-restore-metadata-encrypt.patch"
 
 apply_patch() {
     local patch="$1"
