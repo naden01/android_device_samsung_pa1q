@@ -1,0 +1,24 @@
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1358,6 +1358,21 @@ int TWPartitionManager::Run_Restore(const string& Restore_Name) {
+ 	}
+ 	gui_msg("calc_restore=Calculating restore details...");
+ 	DataManager::GetValue("tw_restore_selected", Restore_List);
++
++	// WIP97: reorder Restore_List to ensure /metadata is restored before /data.
++	// Metadata-encryption requires /metadata's key to exist before /data can be
++	// restored through dm-default-key (the pre-restore hook needs the key to setup
++	// the encryption layer). TWRP's restore order is filesystem-dependent (readdir()
++	// on backup folder), so we enforce this dependency explicitly.
++	if (Restore_List.find("/data;") != string::npos &&
++	    Restore_List.find("/metadata;") != string::npos) {
++		size_t meta_pos = Restore_List.find("/metadata;");
++		if (meta_pos != 0) {  // Not already first
++			Restore_List.erase(meta_pos, 10);  // Remove "/metadata;" (10 chars)
++			Restore_List = "/metadata;" + Restore_List;  // Prepend to front
++			LOGINFO("WIP97:partitionmanager.cpp - reordered Restore_List: /metadata moved before /data\n");
++		}
++	}
+
+ 	if (!Restore_List.empty()) {
+ 		end_pos = Restore_List.find(";", start_pos);
