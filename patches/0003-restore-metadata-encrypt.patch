@@ -1,6 +1,6 @@
 --- a/partition.cpp
 +++ b/partition.cpp
-@@ -2986,6 +2986,38 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
+@@ -2986,6 +2986,40 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
  	// Remount as read/write as needed so we can restore the backup
  	if (!ReMount_RW(true))
  		return false;
@@ -11,9 +11,9 @@
 +	// ciphertext-under-the-/metadata-key there -> decrypts our plaintext into garbage -> bootloop
 +	// with fail_cause M04K00R. The hook runs decrypt.sh (or its dm-setup portion) to build the
 +	// mapper/userdata device + installs FBE keys so libtar's policy-restore works.
-+	// Check: /data mount point AND (Crypto_Key_Location contains "metadata" OR Actual_Block_Device is dm-*)
++	// Check: /data mount point AND (Key_Directory set [metadata_encryption] OR Actual_Block_Device is dm-*)
 +	if (Mount_Point == "/data" &&
-+	    (!Crypto_Key_Location.empty() && Crypto_Key_Location.find("metadata") != string::npos ||
++	    (!Key_Directory.empty() ||
 +	     Actual_Block_Device.find("/dev/block/dm-") != string::npos)) {
 +		string hook = "/system/bin/pre_restore_data.sh";
 +		if (TWFunc::Path_Exists(hook)) {
@@ -38,7 +38,6 @@
 +			LOGINFO("Pre-restore hook %s not found - restore will proceed on raw block (may bootloop)\n", hook.c_str());
 +		}
 +	}
-
+ 
  	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
  	twrpTar tar;
- 	tar.part_settings = part_settings;
