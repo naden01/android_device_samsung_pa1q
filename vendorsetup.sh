@@ -11,10 +11,13 @@ PATCH_DATA_SIZE="$DEVICE_PATH/patches/0001-fast-data-size.patch"
 PATCH_FORMAT_TEARDOWN="$DEVICE_PATH/patches/0002-format-pre-teardown.patch"
 # WIP85: restore with metadata re-encryption (writes through dm-default-key layer)
 PATCH_RESTORE_METADATA="$DEVICE_PATH/patches/0003-restore-metadata-encrypt.patch"
+# WIP97: restore /metadata before /data (metadata-encryption key dependency)
+PATCH_RESTORE_METADATA_FIRST="$DEVICE_PATH/patches/0004-restore-metadata-first.patch"
 
 apply_patch() {
     local patch="$1"
     local target="$2"
+    local marker="$3"
 
     if [ ! -f "$patch" ]; then
         echo "❌ FATAL: Patch not found: $patch"
@@ -25,8 +28,10 @@ apply_patch() {
         exit 1
     fi
 
-    # Check if already applied (look for a marker line from the patch in the target file)
-    if grep -q "WIP78.*refreshdatasz\|WIP82.*format_pre\.sh\|WIP85.*Pre-restore hook" "$target" 2>/dev/null; then
+    # Check if already applied via THIS patch's unique marker. Must be per-patch:
+    # several patches share a target file (partitionmanager.cpp <- 0002 AND 0004), so a
+    # combined grep would see another patch's marker and wrongly skip this one.
+    if [ -n "$marker" ] && grep -q "$marker" "$target" 2>/dev/null; then
         echo "✓ Patch already applied: $patch"
         return
     fi
@@ -61,9 +66,10 @@ apply_patch() {
 # Only run if the TWRP source tree exists (we're in a TWRP build environment)
 if [ -d "$TWRP_ROOT" ]; then
     echo "pa1q: Applying TWRP patches..."
-    apply_patch "$PATCH_DATA_SIZE" "$TWRP_ROOT/partitions.hpp"
-    apply_patch "$PATCH_FORMAT_TEARDOWN" "$TWRP_ROOT/partitionmanager.cpp"
-    apply_patch "$PATCH_RESTORE_METADATA" "$TWRP_ROOT/partition.cpp"
+    apply_patch "$PATCH_DATA_SIZE" "$TWRP_ROOT/partitions.hpp" "Update_Data_Size_Fast"
+    apply_patch "$PATCH_FORMAT_TEARDOWN" "$TWRP_ROOT/partitionmanager.cpp" "format_pre\.sh"
+    apply_patch "$PATCH_RESTORE_METADATA" "$TWRP_ROOT/partition.cpp" "WIP85.*Pre-restore hook"
+    apply_patch "$PATCH_RESTORE_METADATA_FIRST" "$TWRP_ROOT/partitionmanager.cpp" "WIP97:partitionmanager\.cpp"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi

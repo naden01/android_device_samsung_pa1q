@@ -20,15 +20,69 @@ if grep -qE " /data .*mapper/userdata" /proc/mounts 2>/dev/null; then
     exit 0
 fi
 
-# Metadata must be mounted and contain the encryption key
+# WIP97: Ensure /metadata is mounted (mount if not)
 if ! grep -qE " /metadata " /proc/mounts 2>/dev/null; then
-    echo "ERROR: /metadata not mounted - cannot read encryption key"
-    exit 1
+    echo "/metadata not mounted - attempting mount"
+    mount /metadata 2>/dev/null || { echo "ERROR: cannot mount /metadata"; exit 1; }
 fi
 KDIR=/metadata/vold/metadata_encryption/key
+
+# WIP97: If key is missing, try to restore /metadata from backup (if available in same folder)
 if [ ! -e "$KDIR/keymaster_key_blob" ]; then
-    echo "ERROR: $KDIR/keymaster_key_blob missing - no metadata encryption key"
-    exit 1
+    echo "metadata encryption key missing at $KDIR/keymaster_key_blob"
+
+    # Parse backup folder from recent recovery.log "Restore folder:" line
+    BACKUP_FOLDER=$(grep "Restore folder:" /tmp/recovery.log 2>/dev/null | tail -1 | sed 's/.*Restore folder: *//' | tr -d "'")
+
+    if [ -n "$BACKUP_FOLDER" ]; then
+        echo "Searching for metadata backup in: $BACKUP_FOLDER"
+
+        # Look for metadata backup image (flashimg format: metadata.*.win*)
+        META_BACKUP=$(ls "$BACKUP_FOLDER"/metadata.*.win* 2>/dev/null | head -1)
+
+        if [ -n "$META_BACKUP" ] && [ -f "$META_BACKUP" ]; then
+            echo "Found metadata backup: $META_BACKUP"
+            echo "Restoring /metadata partition (this provides the encryption key)..."
+
+            # Unmount /metadata before raw write
+            umount /metadata 2>/dev/null
+
+            # Restore metadata partition (raw block write)
+            META_BLOCK=/dev/block/bootdevice/by-name/metadata
+            if echo "$META_BACKUP" | grep -q '\.win[0-9]*$'; then
+                # Compressed backup - decompress while writing
+                pigz -d -c "$META_BACKUP" 2>&1 | dd of="$META_BLOCK" bs=1M 2>&1 | tail -3
+            else
+                # Uncompressed
+                dd if="$META_BACKUP" of="$META_BLOCK" bs=1M 2>&1 | tail -3
+            fi
+            sync
+
+            # Remount /metadata to see restored key
+            mount /metadata 2>/dev/null || { echo "ERROR: cannot remount /metadata after restore"; exit 1; }
+
+            if [ -e "$KDIR/keymaster_key_blob" ]; then
+                echo "SUCCESS: metadata key restored from backup"
+            else
+                echo "ERROR: metadata backup restored but key still missing at $KDIR"
+                exit 1
+            fi
+        else
+            echo "WARN: no metadata backup found in $BACKUP_FOLDER"
+            echo "      This is Scenario B (data-only restore after Format Data)."
+            echo ""
+            echo "SOLUTION: Boot Android once to generate fresh encryption keys, then return"
+            echo "          to TWRP and restore /data. Android will create the metadata key,"
+            echo "          and the FBE keys from your backup will work with it."
+            echo ""
+            echo "If you did NOT run Format Data before this restore, the existing metadata"
+            echo "key should be present. Check /metadata mount and re-run decrypt.sh."
+            exit 1
+        fi
+    else
+        echo "ERROR: cannot determine backup folder (recovery.log parse failed)"
+        exit 1
+    fi
 fi
 
 # Unmount /data if it's on the raw block (sda59) - we'll remount on the dm device

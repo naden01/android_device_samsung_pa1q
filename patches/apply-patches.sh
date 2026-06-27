@@ -42,6 +42,7 @@ for patch in "$_SELF"/*.patch; do
         0001-fast-data-size.patch)      marker="Update_Data_Size_Fast:partitionmanager.cpp" ;;
         0002-format-pre-teardown.patch) marker="format_pre.sh:partitionmanager.cpp" ;;
         0003-restore-metadata-encrypt.patch) marker="WIP85:partition.cpp" ;;
+        0004-restore-metadata-first.patch) marker="WIP97:partitionmanager.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then
