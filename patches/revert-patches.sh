@@ -20,9 +20,9 @@ fi
 REC="$TOP/bootable/recovery"
 
 # Files touched by the patches in this dir (keep in sync as patches are added):
-#   0001-fast-data-size.patch     -> partitions.hpp, partitionmanager.cpp, gui/gui.cpp
-#   0002-format-pre-teardown.patch -> partitionmanager.cpp
-FILES="partitions.hpp partitionmanager.cpp gui/gui.cpp"
+#   0001-fast-data-size.patch          -> partitions.hpp, partitionmanager.cpp, gui/gui.cpp
+#   0002-restore-metadata-encrypt.patch -> partition.cpp
+FILES="partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp"
 
 if [ ! -d "$REC" ]; then
     echo "pa1q-revert: bootable/recovery not found at '$REC'"
