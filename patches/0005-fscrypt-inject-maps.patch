@@ -75,20 +75,22 @@
  bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_pid) {
  	string Full_FileName;
  	twrpTar tar;
-@@ -2760,6 +2821,12 @@
+@@ -2760,6 +2821,14 @@
  	tar.setsize(Backup_Size);
  	tar.partition_name = Backup_Name;
  	tar.backup_folder = part_settings->Backup_Folder;
 +#ifdef TW_INCLUDE_CRYPTO
 +	// Populate the fscrypt key maps so libtar can store each dir's FBE policy ref in the tar.
 +	// The tar runs in a fork() child, which inherits this process's populated maps.
-+	if (Mount_Point == "/data" && DataManager::GetIntValue(TW_IS_FBE))
++	// NOTE: do NOT gate on TW_IS_FBE - that flag is only set by native Decrypt_FBE_DE(),
++	// which never runs on this device (decrypt.sh does decryption). Gate on /data only.
++	if (Mount_Point == "/data")
 +		inject_fbe_maps();
 +#endif
  	if (tar.createTarFork(tar_fork_pid) != 0)
  		return false;
  	return true;
-@@ -3021,6 +3088,14 @@
+@@ -3021,6 +3090,14 @@
  		}
  	}
  
