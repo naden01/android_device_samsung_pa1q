@@ -13,6 +13,8 @@ PATCH_FORMAT_TEARDOWN="$DEVICE_PATH/patches/0002-format-pre-teardown.patch"
 PATCH_RESTORE_METADATA="$DEVICE_PATH/patches/0003-restore-metadata-encrypt.patch"
 # WIP97: restore /metadata before /data (metadata-encryption key dependency)
 PATCH_RESTORE_METADATA_FIRST="$DEVICE_PATH/patches/0004-restore-metadata-first.patch"
+# WIP107(redo): inject live FBE key ids into libtar policy maps (native policy backup/restore)
+PATCH_FSCRYPT_INJECT="$DEVICE_PATH/patches/0005-fscrypt-inject-maps.patch"
 
 apply_patch() {
     local patch="$1"
@@ -70,6 +72,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_FORMAT_TEARDOWN" "$TWRP_ROOT/partitionmanager.cpp" "format_pre\.sh"
     apply_patch "$PATCH_RESTORE_METADATA" "$TWRP_ROOT/partition.cpp" "WIP85.*Pre-restore hook"
     apply_patch "$PATCH_RESTORE_METADATA_FIRST" "$TWRP_ROOT/partitionmanager.cpp" "WIP97:partitionmanager\.cpp"
+    apply_patch "$PATCH_FSCRYPT_INJECT" "$TWRP_ROOT/partition.cpp" "inject_fbe_maps"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi

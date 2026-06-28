@@ -43,6 +43,7 @@ for patch in "$_SELF"/*.patch; do
         0002-format-pre-teardown.patch) marker="format_pre.sh:partitionmanager.cpp" ;;
         0003-restore-metadata-encrypt.patch) marker="WIP85:partition.cpp" ;;
         0004-restore-metadata-first.patch) marker="WIP97:partitionmanager.cpp" ;;
+        0005-fscrypt-inject-maps.patch)  marker="inject_fbe_maps:partition.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then
