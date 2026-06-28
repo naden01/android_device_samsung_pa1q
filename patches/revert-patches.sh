@@ -23,6 +23,8 @@ REC="$TOP/bootable/recovery"
 #   0001-fast-data-size.patch          -> gui/action.cpp, partitions.hpp, partitionmanager.cpp, gui/gui.cpp
 #   0002-format-pre-teardown.patch     -> partitionmanager.cpp
 #   0003-restore-metadata-encrypt.patch -> partition.cpp
+#   0004-restore-metadata-first.patch   -> partitionmanager.cpp
+#   0005-fscrypt-inject-maps.patch      -> partition.cpp
 FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp"
 
 if [ ! -d "$REC" ]; then

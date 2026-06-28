@@ -1,0 +1,105 @@
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -53,6 +53,8 @@
+ 	// #include "crypto/fde/cryptfs.h"
+ 	#include "cryptfs.h"
+ 	#include "Decrypt.h"
++	#include <fscrypt/fscrypt.h>
++	#include "fscrypt-common.h"
+ #endif
+ extern "C" {
+ 	#include "mtdutils/mtdutils.h"
+@@ -2706,6 +2708,65 @@
+ 	}
+ }
+ 
++#ifdef TW_INCLUDE_CRYPTO
++// WIP107(redo): populate the in-process fscrypt key maps that libtar consults when it
++// backs up / restores FBE encryption policies:
++//   - lookup_ref_key()  (libtar/append.c, BACKUP)  translates a directory's live 16-byte
++//     key identifier -> the symbolic policy ref ("2DK"/"2DE0"/"2CE0") written into the tar.
++//   - lookup_ref_tar()  (libtar/extract.c, RESTORE) translates that symbolic ref back to the
++//     CURRENT 16-byte identifier before FS_IOC_SET_ENCRYPTION_POLICY.
++// Both read three globals (de_key_raw_ref / s_de_policies / s_ce_policies, fscrypt-common.h).
++// On pa1q (A16) these are normally EMPTY: native Decrypt_DE/Decrypt_User go through keystore2
++// /KeyMint which is A16-incompatible, so they never populate the maps -> backup silently drops
++// every policy (fep=NULL) and restore never even calls lookup_ref_tar. The earlier WIP107
++// "fix" called those same broken Decrypt_* functions and so could never work.
++//
++// Instead decrypt.sh (TWRP boot) runs de_keyinstall, which installs all three FBE key layers
++// into the kernel keyring via FS_IOC_ADD_ENCRYPTION_KEY and writes the resulting 16-byte kernel
++// identifiers to /tmp/.fbe_keyids ("DK <hex32>" / "DE0 <hex32>" / "CE0 <hex32>"). Those kernel
++// identifiers are exactly what belongs in key_raw_ref (verified on-device: keyring id == the
++// directory's master_key_identifier == FS_IOC_ADD_ENCRYPTION_KEY return). We inject them
++// directly with NO keystore call. lookup_ref_key/lookup_ref_tar read only .key_raw_ref, so
++// leaving EncryptionPolicy.options at its default is fine. Idempotent; no-op if file absent.
++static int hexnyb(char c) {
++	if (c >= '0' && c <= '9') return c - '0';
++	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
++	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
++	return -1;
++}
++static void inject_fbe_maps() {
++	FILE *f = fopen("/tmp/.fbe_keyids", "r");
++	if (!f) {
++		LOGINFO("inject_fbe_maps: /tmp/.fbe_keyids absent - native FBE policy backup/restore inactive\n");
++		return;
++	}
++	char line[128];
++	int n = 0;
++	while (fgets(line, sizeof(line), f)) {
++		char type[8] = {0}, hexid[64] = {0};
++		if (sscanf(line, "%7s %63s", type, hexid) != 2)
++			continue;
++		if (strlen(hexid) != 32)  // must be exactly 16 bytes (v2 identifier)
++			continue;
++		std::string raw;
++		raw.reserve(16);
++		bool ok = true;
++		for (int i = 0; i < 32; i += 2) {
++			int hi = hexnyb(hexid[i]), lo = hexnyb(hexid[i + 1]);
++			if (hi < 0 || lo < 0) { ok = false; break; }
++			raw.push_back((char)((hi << 4) | lo));
++		}
++		if (!ok || raw.size() != 16)
++			continue;
++		if (strcmp(type, "DK") == 0) { de_key_raw_ref = raw; n++; }
++		else if (strcmp(type, "DE0") == 0) { s_de_policies[0].key_raw_ref = raw; n++; }
++		else if (strcmp(type, "CE0") == 0) { s_ce_policies[0].key_raw_ref = raw; n++; }
++	}
++	fclose(f);
++	LOGINFO("inject_fbe_maps: injected %d FBE key identifier(s) into libtar policy maps\n", n);
++}
++#endif
++
+ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_pid) {
+ 	string Full_FileName;
+ 	twrpTar tar;
+@@ -2760,6 +2821,12 @@
+ 	tar.setsize(Backup_Size);
+ 	tar.partition_name = Backup_Name;
+ 	tar.backup_folder = part_settings->Backup_Folder;
++#ifdef TW_INCLUDE_CRYPTO
++	// Populate the fscrypt key maps so libtar can store each dir's FBE policy ref in the tar.
++	// The tar runs in a fork() child, which inherits this process's populated maps.
++	if (Mount_Point == "/data" && DataManager::GetIntValue(TW_IS_FBE))
++		inject_fbe_maps();
++#endif
+ 	if (tar.createTarFork(tar_fork_pid) != 0)
+ 		return false;
+ 	return true;
+@@ -3021,6 +3088,14 @@
+ 		}
+ 	}
+ 
++#ifdef TW_INCLUDE_CRYPTO
++	// Populate the fscrypt key maps so libtar's lookup_ref_tar() can translate each backed-up
++	// policy ref ("2DK"/"2DE0"/"2CE0") to the CURRENT on-device key identifier before it calls
++	// FS_IOC_SET_ENCRYPTION_POLICY on the freshly-created (empty) directory.
++	if (Mount_Point == "/data")
++		inject_fbe_maps();
++#endif
++
+ 	Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
+ 	twrpTar tar;
+ 	tar.part_settings = part_settings;

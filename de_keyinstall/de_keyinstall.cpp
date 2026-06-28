@@ -735,7 +735,8 @@ bool toEphemeral(const std::shared_ptr<IKeyMintDevice>& km, const std::vector<ui
 // form: keymaster_key_blob + encrypted_key + secdiscardable). Unlocks whatever the key's
 // policy protects. NON-DESTRUCTIVE (keyring only). Returns true on install.
 bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string& dir,
-                   const char* label, const std::vector<uint8_t>* expectedRef) {
+                   const char* label, const std::vector<uint8_t>* expectedRef,
+                   std::string* outId = nullptr) {
     LINE("--- install %s [%s] ---", label, dir.c_str());
     std::vector<uint8_t> kek, encKey, sec;
     if (!readFile(dir + "/keymaster_key_blob", &kek) || !readFile(dir + "/encrypted_key", &encKey) ||
@@ -753,6 +754,7 @@ bool installKeyDir(const std::shared_ptr<IKeyMintDevice>& km, const std::string&
     std::string gotId;
     if (addHwWrappedKey(ephemeral, &gotId) != 0) return false;
     LINE("  KEY INSTALLED, kernel id=%s", gotId.c_str());
+    if (outId) *outId = gotId;
     if (expectedRef && expectedRef->size() == KEY_IDENTIFIER_SIZE) {
         std::string want = hex(expectedRef->data(), expectedRef->size());
         LINE("  id %s ref(%s)", gotId == want ? "==" : "!=", want.c_str());
@@ -826,7 +828,8 @@ bool unwrapSyntheticPassword(const std::shared_ptr<IKeyMintDevice>& km,
 //     then (hw-wrapped, like DE): convertStorageKeyToEphemeral -> FS_IOC_ADD_ENCRYPTION_KEY
 //   (no storage binding seed set on this device - proven by the DE keys unwrapping with
 //    appId=secdiscardable_hash only.)
-bool installCeKey(const std::shared_ptr<IKeyMintDevice>& km, const std::vector<uint8_t>& sp) {
+bool installCeKey(const std::shared_ptr<IKeyMintDevice>& km, const std::vector<uint8_t>& sp,
+                  std::string* outId = nullptr) {
     std::vector<uint8_t> fbeKey =
         sp800Derive(sp, "fbe-key", "android-synthetic-password-personalization-context");
     LINE("  fbeKey (disk decryption key)[:8]=%s", hex(fbeKey.data(), 8).c_str());
@@ -860,6 +863,7 @@ bool installCeKey(const std::shared_ptr<IKeyMintDevice>& km, const std::vector<u
         return false;
     }
     LINE("  CE KEY INSTALLED, kernel id=%s", gotId.c_str());
+    if (outId) *outId = gotId;
     return true;
 }
 
@@ -910,19 +914,24 @@ int main(int argc, char** argv) {
     km->getInterfaceVersion(&kmVer);
     LINE("connected to KeyMint (interface V%d)", kmVer);
 
+    // Captured 16-byte kernel key identifiers (hex32) for /tmp/.fbe_keyids - consumed by
+    // TWRP's inject_fbe_maps() so libtar's lookup_ref_key/lookup_ref_tar can translate
+    // backup policy refs ("2DK"/"2DE0"/"2CE0") to live key_raw_refs.
+    std::string idSysDE, idUser0DE, idCE;
+
     // Layer 1: systemwide DE key (/data/unencrypted/key). Unlocks /data/misc - which is
     // where the per-user keys live, so this MUST go first to even read layer 2.
     std::vector<uint8_t> ref;
     bool haveRef = readFile("/data/unencrypted/ref", &ref);
     bool sysOk = installKeyDir(km, "/data/unencrypted/key", "systemwide DE",
-                               haveRef ? &ref : nullptr);
+                               haveRef ? &ref : nullptr, &idSysDE);
     LINE("VERIFY: /data/misc %s", dirReadable("/data/misc") ? "READABLE (DE unlocked)" : "locked");
 
     // Layer 2: user-0 DE key (/data/misc/vold/user_keys/de/0). Same kEmptyAuthentication
     // format - readable only now that layer 1 unlocked /data/misc. Unlocks /data/system_de/0
     // and /data/user_de/0, exposing the spblob needed for the CE layer.
     if (sysOk && dirReadable("/data/misc/vold/user_keys/de/0")) {
-        installKeyDir(km, "/data/misc/vold/user_keys/de/0", "user-0 DE", nullptr);
+        installKeyDir(km, "/data/misc/vold/user_keys/de/0", "user-0 DE", nullptr, &idUser0DE);
         LINE("VERIFY: /data/system_de/0 %s",
              dirReadable("/data/system_de/0") ? "READABLE (user-0 DE unlocked)" : "locked");
     } else if (sysOk) {
@@ -987,7 +996,7 @@ int main(int argc, char** argv) {
             }
             if (sp.empty()) {
                 // CE not unlocked (no credential / wrong / pattern) - message already printed
-            } else if (!installCeKey(km, sp)) {
+            } else if (!installCeKey(km, sp, &idCE)) {
                 LINE("CE stage 3+4 failed: fbe-key / CE install (see status above)");
             } else {
                 writeFileMode("/tmp/.ce_sp", sp, 0600);  // cache SP for no-credential remounts
@@ -997,6 +1006,25 @@ int main(int argc, char** argv) {
                 LINE("CE DONE: user-0 CE key installed; /data/data %s",
                      dataOpen ? "opens - CE LAYER UNLOCKED" : "open-failed (check)");
             }
+        }
+    }
+
+    // Write captured key identifiers for TWRP's inject_fbe_maps() (native libtar policy
+    // backup/restore). One "TYPE hex32" line per installed layer. Omitted lines (e.g. CE
+    // when LSKF/weaver unlock failed) simply leave that map slot empty in TWRP - DE-only
+    // restore still works for system data. Idempotent: rewritten each run.
+    {
+        std::string out;
+        if (idSysDE.size()   == KEY_IDENTIFIER_SIZE * 2) out += "DK "  + idSysDE   + "\n";
+        if (idUser0DE.size() == KEY_IDENTIFIER_SIZE * 2) out += "DE0 " + idUser0DE + "\n";
+        if (idCE.size()      == KEY_IDENTIFIER_SIZE * 2) out += "CE0 " + idCE      + "\n";
+        if (!out.empty()) {
+            std::vector<uint8_t> buf(out.begin(), out.end());
+            if (writeFileMode("/tmp/.fbe_keyids", buf, 0600))
+                LINE("wrote /tmp/.fbe_keyids (%zu key id(s))",
+                     (size_t)(!idSysDE.empty() + !idUser0DE.empty() + !idCE.empty()));
+            else
+                LINE("WARN: could not write /tmp/.fbe_keyids");
         }
     }
 
