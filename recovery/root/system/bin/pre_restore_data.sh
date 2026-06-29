@@ -14,9 +14,49 @@ LOG=/tmp/pre_restore_data.log
 exec >>"$LOG" 2>&1
 echo "===== pre_restore_data start $(date) ====="
 
-# If /data is already mounted on the mapper device, we're done (re-run safety)
-if grep -qE " /data .*mapper/userdata" /proc/mounts 2>/dev/null; then
-    echo "/data already on dm-mapper, FBE keys presumably in place -> OK"
+# Is /data mounted on the dm-default-key device? (re-run / idempotency check)
+# BUG FIX: the old check `grep " /data .*mapper/userdata"` NEVER matched, for two reasons:
+#   1) /proc/mounts field order is `DEVICE MOUNTPOINT FSTYPE`, so the device comes BEFORE
+#      " /data " - a pattern that puts mapper/userdata AFTER /data can never hit.
+#   2) the device is shown as the RESOLVED node `/dev/block/dm-N`, NOT the symlink name
+#      `mapper/userdata`, so matching the literal "mapper/userdata" string fails anyway.
+# The only restore-ready state is /data mounted on the dm-default-key device (any /dev/block/dm-*);
+# raw sda59 (plaintext) is NOT ready. Parse field 1 (device) and field 2 (mountpoint) properly.
+data_on_dm() {
+    while read -r _dev _mp _rest; do
+        [ "$_mp" = "/data" ] || continue
+        case "$_dev" in
+            /dev/block/mapper/userdata|/dev/block/dm-*) return 0 ;;  # on dm-default-key = ready
+            *) return 1 ;;                                            # on raw sda59 = NOT ready
+        esac
+    done < /proc/mounts
+    return 1
+}
+
+# BUG FIX (watcher race): decrypt.sh starts the long-running `decrypt-watcher` service after the
+# first successful boot mount. Its job is to auto-REMOUNT /data the instant it sees /data
+# unmounted. That directly fights this hook: Step 2 unmounts /data, the watcher immediately
+# remounts it on the dm device, and then Step 5b make_f2fs / Step 5c mount hit "In use by the
+# system!" / "Device or resource busy" -> hook exits 1 -> restore aborts. Silence the watcher for
+# the whole restore; we own /data here. (No restart: it's only a GUI-unmount convenience, and the
+# user reboots into Android right after a restore anyway.)
+# NOTE: decrypt.sh RE-STARTS the watcher every time it ends with /data mounted (decrypt.sh:548),
+# so this must be callable repeatedly - after the idempotency check AND after the decrypt.sh
+# retry loop below (warm-TA path mounts /data -> restarts the watcher right before make_f2fs).
+stop_watcher() {
+    [ "$(getprop init.svc.decrypt-watcher)" = "running" ] || return 0
+    echo "stopping decrypt-watcher (it would remount /data and break make_f2fs)"
+    setprop ctl.stop decrypt-watcher
+    n=0; while [ "$n" -lt 30 ] && [ "$(getprop init.svc.decrypt-watcher)" = "running" ]; do
+        n=$((n + 1)); sleep 0.1
+    done
+    echo "decrypt-watcher state=$(getprop init.svc.decrypt-watcher) (~$((n * 100))ms)"
+}
+stop_watcher
+
+# If /data is already on the dm-default-key device, the prep is done (re-run safety)
+if data_on_dm; then
+    echo "/data already on dm-default-key device, FBE keys presumably in place -> OK"
     exit 0
 fi
 
@@ -151,10 +191,29 @@ fi
 # "Wiping Data" did not reformat sda59 - it only rm'd files). So we SKIP the mount
 # part (tell decrypt.sh to setup dm only) and format+mount ourselves.
 echo "Step 5: running decrypt.sh to recreate dm-default-key (skip mount)..."
-# Temporarily stub out mountFstab so decrypt.sh only sets up the dm device without mounting
-if ! /system/bin/decrypt.sh 2>&1 | tail -20; then
-    echo "WARN: decrypt.sh returned non-zero (expected if mount failed due to stale superblock)"
-fi
+# BUG FIX (cold-TA): the FIRST decrypt.sh after a fresh TWRP boot hits a cold KeyMint TA -
+# `vdc cryptfs mountFstab` returns Status(-8) and the dm-default-key device is NOT built. A
+# second run (TA now warm) builds it. So retry decrypt.sh until mapper/userdata appears (up to
+# 3 attempts). Without this, the very first restore after a reboot always fails at Step 5b.
+attempt=0
+while [ "$attempt" -lt 3 ]; do
+    attempt=$((attempt + 1))
+    echo "decrypt.sh attempt $attempt..."
+    /system/bin/decrypt.sh 2>&1 | tail -20
+    if [ -e /dev/block/mapper/userdata ]; then
+        echo "dm-default-key device present after attempt $attempt"
+        break
+    fi
+    echo "WARN: mapper/userdata absent after attempt $attempt (cold TA?) - retrying"
+    # the watcher may have been (re)started by decrypt.sh's tail end - silence it again
+    stop_watcher
+    sleep 1
+done
+
+# decrypt.sh restarts the watcher whenever it ends with /data mounted (warm-TA path). Silence it
+# again NOW, unconditionally, before we unmount + make_f2fs - otherwise it races a remount back in
+# the ~0.1s between our umount and make_f2fs and we hit "In use by the system!" anyway.
+stop_watcher
 
 # WIP100: Format /data THROUGH the dm device so the new f2fs superblock is encrypted
 # under the CURRENT metadata key. TWRP's "Wiping Data" only rm'd files; it left the
@@ -163,6 +222,16 @@ echo "Step 5b: formatting /data through dm-default-key (NEW key encrypts superbl
 if [ ! -e /dev/block/mapper/userdata ]; then
     echo "ERROR: /dev/block/mapper/userdata not created by decrypt.sh"
     exit 1
+fi
+# BUG FIX ("In use by the system!"): on a WARM TA, decrypt.sh's own mountFstab can succeed and
+# leave /data mounted on the dm device. make_f2fs on a mounted device then fails with "In use by
+# the system!" and the subsequent mount fails with "Device or resource busy". Unmount /data first
+# (the watcher is silenced above, so it won't race a remount back in). data_on_dm at the top
+# already returned for the genuine "already prepared" case, so any mount here is stale and safe to
+# drop before we reformat under the current key.
+if grep -qE " /data " /proc/mounts 2>/dev/null; then
+    echo "/data is mounted before make_f2fs - unmounting (decrypt.sh mounted it on a warm TA)"
+    umount /data 2>&1 && echo "umount /data ok" || echo "umount /data failed"
 fi
 # Format through the mapper device (NOT raw sda59) so kernel encrypts with current key
 if ! /system/bin/make_f2fs -O encrypt,extra_attr,compression,verity /dev/block/mapper/userdata 2>&1 | tail -10; then
@@ -178,11 +247,12 @@ if ! mount -t f2fs -o rw,lazytime,seclabel,nosuid,nodev,noatime /dev/block/mappe
     exit 1
 fi
 
-# Verify /data is now on the mapper device
-echo "Step 6: verifying /data is on mapper/userdata..."
+# Verify /data is now on the dm-default-key device (use the robust field-parsing check, NOT a
+# literal "mapper/userdata" string match - /proc/mounts shows the resolved /dev/block/dm-N node)
+echo "Step 6: verifying /data is on the dm-default-key device..."
 grep " /data " /proc/mounts || echo "ERROR: /data not mounted at all"
-if ! grep -qE "mapper/userdata /data" /proc/mounts 2>/dev/null; then
-    echo "ERROR: /data not on mapper/userdata after mount"
+if ! data_on_dm; then
+    echo "ERROR: /data not on dm-default-key device after mount"
     grep " /data " /proc/mounts
     exit 1
 fi
