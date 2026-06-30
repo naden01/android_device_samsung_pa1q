@@ -16,7 +16,7 @@
  	void setsize(unsigned long long backup_size);
 --- a/twrpTar.cpp
 +++ b/twrpTar.cpp
-@@ -728,6 +728,71 @@
+@@ -728,6 +728,108 @@
  	return 0;
  }
  
@@ -38,50 +38,87 @@
 +// given without a leading '/' too (e.g. "misc/", "unencrypted/"). Returns 0 on read-to-EOF, -1 on error.
 +int twrpTar::extractGlob(const std::vector<std::string>& prefixes) {
 +	char* charRootDir = (char*) tardir.c_str();
-+	if (!part_settings->adbbackup)
-+		Set_Archive_Type(TWFunc::Get_File_Type(tarfn));
-+	else
-+		current_archive_type = (part_settings->adb_compression == 1) ? COMPRESSED : UNCOMPRESSED;
-+	if (current_archive_type == ENCRYPTED || current_archive_type == COMPRESSED_ENCRYPTED) {
-+		int dret = TWFunc::Try_Decrypting_File(tarfn, password);
-+		if (dret < 2) {
-+			LOGINFO("extractGlob: cannot decrypt '%s'\n", tarfn.c_str());
-+			return -1;
-+		}
-+		if (dret == 3)
-+			current_archive_type = COMPRESSED_ENCRYPTED;
-+	}
-+	if (openTar() == -1)
-+		return -1;
 +
-+	int i, dummy_fd = 0, rc = 0, matched = 0;
-+	while ((i = th_read(t)) == 0) {
-+		char* filename = th_get_pathname(t);
-+		// strip a leading '/' if present so comparison is consistent
-+		const char* fn = (filename && filename[0] == '/') ? filename + 1 : filename;
-+		bool want = false;
-+		for (size_t p = 0; p < prefixes.size(); ++p) {
-+			const std::string& pre = prefixes[p];
-+			if (strncmp(fn, pre.c_str(), pre.size()) == 0) { want = true; break; }
++	// WIP110+: build the list of archive files (split-archive support) to scan. A backup is EITHER a single file
++	// (tarfn, e.g. data.f2fs.win) OR split across parts named basefn + "%i%02i" (thread id
++	// 0-8, 2-digit count 00-99, e.g. data.f2fs.win000, data.f2fs.win001, ...). The key
++	// material we need (unencrypted/, misc/, system_de/, system/) can live in ANY part, so we
++	// must scan them all. Mirrors the split discovery in extractTarFork()/extractMulti().
++	std::vector<std::string> archives;
++	if (TWFunc::Path_Exists(tarfn)) {
++		archives.push_back(tarfn);
++	} else {
++		string base = tarfn + "000";
++		if (TWFunc::Path_Exists(base)) {
++			string temp = tarfn + "%i%02i";
++			char actual_filename[255];
++			for (int tid = 0; tid < 9; ++tid) {
++				for (int cnt = 0; cnt < 100; ++cnt) {
++					snprintf(actual_filename, sizeof(actual_filename), temp.c_str(), tid, cnt);
++					if (!TWFunc::Path_Exists(actual_filename)) break;
++					archives.push_back(actual_filename);
++				}
++			}
 +		}
-+		if (!want) {
-+			if (TH_ISREG(t) && tar_skip_regfile(t) != 0) { rc = -1; break; }
-+			continue;
++	}
++	if (archives.empty()) {
++		LOGINFO("extractGlob: no archive found for '%s' (single or split)\n", tarfn.c_str());
++		return -1;
++	}
++
++	int rc = 0, matched = 0;
++	string saved_tarfn = tarfn;
++	for (size_t a = 0; a < archives.size() && rc == 0; ++a) {
++		tarfn = archives[a];  // openTar()/Set_Archive_Type/Try_Decrypting_File all read tarfn
++		if (!part_settings->adbbackup)
++			Set_Archive_Type(TWFunc::Get_File_Type(tarfn));
++		else
++			current_archive_type = (part_settings->adb_compression == 1) ? COMPRESSED : UNCOMPRESSED;
++		if (current_archive_type == ENCRYPTED || current_archive_type == COMPRESSED_ENCRYPTED) {
++			int dret = TWFunc::Try_Decrypting_File(tarfn, password);
++			if (dret < 2) {
++				LOGINFO("extractGlob: cannot decrypt '%s'\n", tarfn.c_str());
++				rc = -1;
++				break;
++			}
++			if (dret == 3)
++				current_archive_type = COMPRESSED_ENCRYPTED;
 +		}
-+		string realname = string(charRootDir) + "/" + fn;
-+		if (tar_extract_file(t, realname.c_str(), charRootDir, &dummy_fd) != 0) {
-+			LOGINFO("extractGlob: failed to extract '%s'\n", realname.c_str());
++		if (openTar() == -1) {
 +			rc = -1;
 +			break;
 +		}
-+		matched++;
++
++		int i, dummy_fd = 0;
++		while ((i = th_read(t)) == 0) {
++			char* filename = th_get_pathname(t);
++			// strip a leading '/' if present so comparison is consistent
++			const char* fn = (filename && filename[0] == '/') ? filename + 1 : filename;
++			bool want = false;
++			for (size_t p = 0; p < prefixes.size(); ++p) {
++				const std::string& pre = prefixes[p];
++				if (strncmp(fn, pre.c_str(), pre.size()) == 0) { want = true; break; }
++			}
++			if (!want) {
++				if (TH_ISREG(t) && tar_skip_regfile(t) != 0) { rc = -1; break; }
++				continue;
++			}
++			string realname = string(charRootDir) + "/" + fn;
++			if (tar_extract_file(t, realname.c_str(), charRootDir, &dummy_fd) != 0) {
++				LOGINFO("extractGlob: failed to extract '%s'\n", realname.c_str());
++				rc = -1;
++				break;
++			}
++			matched++;
++		}
++		if (i == -1)
++			rc = -1;
++		if (tar_close(t) != 0)
++			LOGINFO("extractGlob: unable to close tar file\n");
 +	}
-+	if (i == -1)
-+		rc = -1;
-+	LOGINFO("extractGlob: extracted %d entr%s for %zu prefix(es), rc=%d\n",
-+	        matched, matched == 1 ? "y" : "ies", prefixes.size(), rc);
-+	if (tar_close(t) != 0)
-+		LOGINFO("extractGlob: unable to close tar file\n");
++	tarfn = saved_tarfn;  // restore for the main extractTarFork() that runs after staging
++	LOGINFO("extractGlob: extracted %d entr%s for %zu prefix(es) from %zu archive(s), rc=%d\n",
++	        matched, matched == 1 ? "y" : "ies", prefixes.size(), archives.size(), rc);
 +	return rc;
 +}
 +
