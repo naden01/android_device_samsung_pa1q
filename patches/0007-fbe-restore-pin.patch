@@ -126,18 +126,20 @@
 +	DataManager::SetValue("tw_fbe_pin", "");
 +	DataManager::SetValue("tw_fbe_need_pin", 0);
 +
-+	// Find the data archive (data.f2fs.win, possibly split data.f2fs.win000).
-+	string data_archive;
-+	if (TWFunc::Path_Exists(Restore_Path + "/data.f2fs.win"))
-+		data_archive = Restore_Path + "/data.f2fs.win";
-+	else if (TWFunc::Path_Exists(Restore_Path + "/data.f2fs.win000"))
-+		data_archive = Restore_Path + "/data.f2fs.win000";
-+
++	// Scan the data backup for a credential protector (a .pwd in the spblob). A single-file
++	// backup is data.f2fs.win; a split backup is data.f2fs.win000, win001, ... and the .pwd
++	// can sit in ANY part (e.g. system_de/0/spblob lands in a later part, after the big
++	// /data/data trees) - so we must scan ALL parts, not just win000. We tar -tf each part
++	// (header-only, cheap) and grep for spblob/*.pwd. The grep matches the path as a substring,
++	// so it works for both root-stripped ("system_de/...") and rooted ("/data/system_de/...")
++	// archive path formats. Empty-LSKF backups have no .pwd at all (only .weaver/.spblob).
 +	bool need_pin = false;
-+	if (!data_archive.empty()) {
-+		// List archive entries and look for a credential protector (.pwd in spblob).
-+		// Header-only scan; grep -m1 stops at the first match.
-+		string cmd = "tar -tf '" + data_archive + "' 2>/dev/null | grep -m1 -E 'system_de/0/spblob/.*\\.pwd$'";
++	{
++		string cmd =
++			"for f in '" + Restore_Path + "'/data.f2fs.win '" + Restore_Path + "'/data.f2fs.win[0-9][0-9][0-9]; do "
++			"[ -f \"$f\" ] || continue; "
++			"tar -tf \"$f\" 2>/dev/null | grep -m1 -E 'spblob/[^/]*\\.pwd$' && break; "
++			"done";
 +		string result;
 +		TWFunc::Exec_Cmd(cmd, result, false);
 +		if (!result.empty()) {
@@ -146,8 +148,6 @@
 +		} else {
 +			LOGINFO("WIP112: no credential in backup (empty LSKF) -> no PIN prompt\n");
 +		}
-+	} else {
-+		LOGINFO("WIP112: no data archive found in '%s' - skipping PIN prompt\n", Restore_Path.c_str());
 +	}
 +
 +	if (need_pin) {
