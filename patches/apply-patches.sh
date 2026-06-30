@@ -45,6 +45,8 @@ for patch in "$_SELF"/*.patch; do
         0004-restore-metadata-first.patch) marker="WIP97:partitionmanager.cpp" ;;
         0005-fscrypt-inject-maps.patch)  marker="inject_fbe_maps:partition.cpp" ;;
         0006-staged-fbe-restore.patch)   marker="WIP110:partition.cpp" ;;
+        0007-fbe-restore-pin.patch)      marker="WIP112:partition.cpp" ;;
+        0008-fbe-restore-pin-theme.patch) marker="fbe_restore_pin:gui/theme/common/portrait.xml" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then
