@@ -16,7 +16,7 @@
  	void setsize(unsigned long long backup_size);
 --- a/twrpTar.cpp
 +++ b/twrpTar.cpp
-@@ -728,6 +728,114 @@
+@@ -728,6 +728,132 @@
  	return 0;
  }
  
@@ -67,8 +67,17 @@
 +	}
 +
 +	int rc = 0, matched = 0;
++	// WIP116 early-exit: read parts only while we keep finding our prefixes. Once a part yields
++	// ZERO matches AFTER we've already matched something, the key-material zone is behind us, so
++	// stop opening further parts. This is the ONLY safe split early-exit: per-archive tail-cutting
++	// is NOT safe because a single stage can search two prefixes that sit far apart in one part
++	// with hundreds of foreign entries between them (e.g. system/ and system_de/ in the same
++	// part), and it naturally handles a folder that straddles a part boundary (both parts match,
++	// both are read; the first non-matching part ends the scan).
++	bool found_any = false;
 +	string saved_tarfn = tarfn;
 +	for (size_t a = 0; a < archives.size() && rc == 0; ++a) {
++		int matched_this_archive = 0;
 +		tarfn = archives[a];  // openTar()/Set_Archive_Type/Try_Decrypting_File all read tarfn
 +		if (!part_settings->adbbackup)
 +			Set_Archive_Type(TWFunc::Get_File_Type(tarfn));
@@ -116,11 +125,20 @@
 +				break;
 +			}
 +			matched++;
++			matched_this_archive++;
 +		}
 +		if (i == -1)
 +			rc = -1;
 +		if (tar_close(t) != 0)
 +			LOGINFO("extractGlob: unable to close tar file\n");
++		// WIP116 early-exit: stop once a part contributes nothing after we've started matching.
++		if (matched_this_archive > 0) {
++			found_any = true;
++		} else if (found_any) {
++			LOGINFO("extractGlob: early-exit after %zu/%zu part(s) - key-material zone passed\n",
++			        a + 1, archives.size());
++			break;
++		}
 +	}
 +	tarfn = saved_tarfn;  // restore for the main extractTarFork() that runs after staging
 +	LOGINFO("extractGlob: extracted %d entr%s for %zu prefix(es) from %zu archive(s), rc=%d\n",
