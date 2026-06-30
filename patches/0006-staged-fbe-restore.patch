@@ -1,0 +1,175 @@
+--- a/twrpTar.hpp
++++ b/twrpTar.hpp
+@@ -50,6 +50,13 @@
+ 	virtual ~twrpTar();
+ 	int createTarFork(pid_t *tar_fork_pid);
+ 	int extractTarFork();
++	// WIP110 (staged FBE restore): extract ONLY entries whose archive path begins with one of
++	// the given prefixes, in the CURRENT process (no fork/pipe/progress). Used to pull the small
++	// FBE key-material trees out of the archive FIRST, so de_keyinstall can load the keys into the
++	// kernel keyring BEFORE the main extractTarFork() applies fscrypt policies to encrypted dirs
++	// (writing into a policy'd dir whose key is absent fails ENOKEY -> ERROR 255). Native libtar
++	// dir/policy/SELinux handling is reused per entry. Returns 0 on success (read to EOF), -1 on error.
++	int extractGlob(const std::vector<std::string>& prefixes);
+ 	void setfn(string fn);
+ 	void setdir(string dir);
+ 	void setsize(unsigned long long backup_size);
+--- a/twrpTar.cpp
++++ b/twrpTar.cpp
+@@ -728,6 +728,71 @@
+ 	return 0;
+ }
+ 
++// WIP110 (staged FBE restore): extract only entries whose path starts with one of `prefixes`,
++// in-process. On metadata-encrypted /data the kernel keyring is EMPTY right after Format, but
++// libtar's main pass applies an fscrypt policy to each freshly-created dir; writing files INTO an
++// encrypted dir whose key is not in the keyring fails with ENOKEY (observed:
++// "tar_extract_file failed /data/vendor/hardware" -> ERROR 255). The fix is to load the FBE keys
++// BEFORE the main pass, but the key material itself lives in the archive. So we first pull only
++// the small key-material trees out (this method), run de_keyinstall, then do the normal full
++// extractTarFork(). No fork/pipe/progress: the matched data is a few MB and runs fast.
++//
++// We do prefix matching (NOT fnmatch): tar_extract_glob uses FNM_PATHNAME where '*' does not cross
++// '/', so it cannot match a whole subtree recursively, and it takes only ONE pattern per call.
++// We need several whole subtrees (e.g. "misc/", "system_de/") plus a single file
++// ("system/locksettings.db") in a single archive pass, so we walk entries ourselves and reuse
++// libtar's native tar_extract_file (which handles mkdir, fscrypt policy and SELinux per entry).
++// Archive paths are stored WITHOUT a leading '/' (TWRP strips it on backup), so prefixes here are
++// given without a leading '/' too (e.g. "misc/", "unencrypted/"). Returns 0 on read-to-EOF, -1 on error.
++int twrpTar::extractGlob(const std::vector<std::string>& prefixes) {
++	char* charRootDir = (char*) tardir.c_str();
++	if (!part_settings->adbbackup)
++		Set_Archive_Type(TWFunc::Get_File_Type(tarfn));
++	else
++		current_archive_type = (part_settings->adb_compression == 1) ? COMPRESSED : UNCOMPRESSED;
++	if (current_archive_type == ENCRYPTED || current_archive_type == COMPRESSED_ENCRYPTED) {
++		int dret = TWFunc::Try_Decrypting_File(tarfn, password);
++		if (dret < 2) {
++			LOGINFO("extractGlob: cannot decrypt '%s'\n", tarfn.c_str());
++			return -1;
++		}
++		if (dret == 3)
++			current_archive_type = COMPRESSED_ENCRYPTED;
++	}
++	if (openTar() == -1)
++		return -1;
++
++	int i, dummy_fd = 0, rc = 0, matched = 0;
++	while ((i = th_read(t)) == 0) {
++		char* filename = th_get_pathname(t);
++		// strip a leading '/' if present so comparison is consistent
++		const char* fn = (filename && filename[0] == '/') ? filename + 1 : filename;
++		bool want = false;
++		for (size_t p = 0; p < prefixes.size(); ++p) {
++			const std::string& pre = prefixes[p];
++			if (strncmp(fn, pre.c_str(), pre.size()) == 0) { want = true; break; }
++		}
++		if (!want) {
++			if (TH_ISREG(t) && tar_skip_regfile(t) != 0) { rc = -1; break; }
++			continue;
++		}
++		string realname = string(charRootDir) + "/" + fn;
++		if (tar_extract_file(t, realname.c_str(), charRootDir, &dummy_fd) != 0) {
++			LOGINFO("extractGlob: failed to extract '%s'\n", realname.c_str());
++			rc = -1;
++			break;
++		}
++		matched++;
++	}
++	if (i == -1)
++		rc = -1;
++	LOGINFO("extractGlob: extracted %d entr%s for %zu prefix(es), rc=%d\n",
++	        matched, matched == 1 ? "y" : "ies", prefixes.size(), rc);
++	if (tar_close(t) != 0)
++		LOGINFO("extractGlob: unable to close tar file\n");
++	return rc;
++}
++
+ int twrpTar::extract() {
+ 	if (!part_settings->adbbackup)  {
+ 		LOGINFO("Setting archive type\n");
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -3093,7 +3093,9 @@
+ #ifdef TW_INCLUDE_CRYPTO
+ 	// Populate the fscrypt key maps so libtar's lookup_ref_tar() can translate each backed-up
+ 	// policy ref ("2DK"/"2DE0"/"2CE0") to the CURRENT on-device key identifier before it calls
+-	// FS_IOC_SET_ENCRYPTION_POLICY on the freshly-created (empty) directory.
++	// FS_IOC_SET_ENCRYPTION_POLICY on the freshly-created (empty) directory. This initial call
++	// reflects whatever /tmp/.fbe_keyids holds now; the staged preload below re-injects after
++	// each de_keyinstall so the maps track the keys as they come online.
+ 	if (Mount_Point == "/data")
+ 		inject_fbe_maps();
+ #endif
+@@ -3111,6 +3113,71 @@
+ 		tar.setpassword(Password);
+ #endif
+ 	part_settings->progress->SetPartitionSize(Get_Restore_Size(part_settings));
++
++#ifdef TW_INCLUDE_CRYPTO
++	// WIP110: STAGED FBE-KEY PRELOAD for metadata-encrypted /data.
++	// The pre-restore hook formatted /data through dm-default-key, so the kernel fscrypt keyring
++	// is EMPTY. libtar's main pass below applies an fscrypt policy to each freshly-created dir
++	// (via the maps inject_fbe_maps() populates) - but writing files INTO a policy'd dir whose
++	// key is not yet in the keyring fails with ENOKEY ("tar_extract_file failed
++	// /data/vendor/hardware" -> ERROR 255). The keys can only be derived from material that lives
++	// in THIS archive, and that material is itself nested in encrypted zones (domino):
++	//   - systemwide DE ("DK")  <- /data/unencrypted/key      (NONE policy, readable immediately)
++	//   - user-0 DE   ("DE0")   <- /data/misc/.../de/0         (DK-encrypted: needs DK in keyring)
++	//   - user-0 CE   ("CE0")   <- /data/system/locksettings.db + /data/system_de/0/spblob/*
++	//                              + /data/misc/keystore + /data/misc/.../ce/0 (DE0-encrypted)
++	// So we pull the key material out in dependency order, running de_keyinstall after each stage
++	// to load that layer's key, re-injecting the maps so the NEXT stage's dirs get their policy,
++	// THEN do the normal full extract with all three keys present.
++	// de_keyinstall is safe to run incrementally (dirReadable guards; idempotent FS_IOC_ADD_KEY).
++	// de_keyinstall rewrites /tmp/.fbe_keyids each run, so inject_fbe_maps() after it refreshes
++	// the libtar maps. Archive paths have no leading '/' (TWRP strips it), so prefixes omit it.
++	if (Mount_Point == "/data" && !Key_Directory.empty()) {
++		string de_keyinstall = "/system/bin/run_de_keyinstall.sh";
++		if (TWFunc::Path_Exists(de_keyinstall)) {
++			string kresult;
++			std::vector<std::string> stage;
++			LOGINFO("WIP110: staged FBE key preload before main restore\n");
++
++			// Stage 1: systemwide DE key material (plaintext) -> install DK -> inject DK
++			stage.clear();
++			stage.push_back("unencrypted/");
++			tar.extractGlob(stage);
++			TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++			LOGINFO("WIP110 stage1 (DK) de_keyinstall:\n%s\n", kresult.c_str());
++			inject_fbe_maps();
++
++			// Stage 2: user-0 DE + keystore + CE material under /data/misc (now DK-readable)
++			//          -> install DE0 -> inject DK+DE0
++			stage.clear();
++			stage.push_back("misc/");
++			tar.extractGlob(stage);
++			TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++			LOGINFO("WIP110 stage2 (DE0) de_keyinstall:\n%s\n", kresult.c_str());
++			inject_fbe_maps();
++
++			// Stage 3: CE synthetic-password material (now DE0-readable) -> install CE0
++			//          -> inject DK+DE0+CE0
++			// NOTE: use the "system/" DIRECTORY prefix, NOT "system/locksettings.db" (a file).
++			// A file prefix makes libtar create the parent /data/system via a bare mkdir with NO
++			// fscrypt policy; the main pass then hits EEXIST and skips the policy, leaving
++			// /data/system unencrypted -> Android init "set_policy_failed:/data/system" -> bootloop.
++			// The "system/" prefix extracts the /system/ dir entry itself (pax tag 2DK), so the dir
++			// is created WITH its policy (DK is already in the keyring from stage1). Trailing slash
++			// avoids matching siblings system_de/ system_ce/ (those start with "system_", not "system/").
++			stage.clear();
++			stage.push_back("system_de/");
++			stage.push_back("system/");
++			tar.extractGlob(stage);
++			TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++			LOGINFO("WIP110 stage3 (CE0) de_keyinstall:\n%s\n", kresult.c_str());
++			inject_fbe_maps();
++		} else {
++			LOGINFO("WIP110: %s not found - skipping staged key preload (restore may fail with ENOKEY)\n", de_keyinstall.c_str());
++		}
++	}
++#endif
++
+ 	if (tar.extractTarFork() != 0)
+ 		ret = false;
+ 	else

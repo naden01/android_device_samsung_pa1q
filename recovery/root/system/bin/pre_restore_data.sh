@@ -258,24 +258,16 @@ if ! data_on_dm; then
 fi
 echo "/data successfully mounted on dm-default-key device"
 
-# Install FBE keys (DE+CE) so libtar's FS_IOC_SET_ENCRYPTION_POLICY succeeds.
-# de_keyinstall reads /data/unencrypted/key (systemwide DE) + /data/misc/vold/user_keys
-# (user-0 DE+CE) and installs all three layers into the kernel fscrypt keyring.
-# Non-destructive (keyring-only, per-boot).
-if [ -x /system/bin/de_keyinstall ]; then
-    echo "Installing FBE keys (de_keyinstall)"
-    SYS=/decrypt
-    LK="$SYS/system/bin/bootstrap/linker64"
-    LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
-    ( export LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system
-      exec "$LK" /system/bin/de_keyinstall ) 2>&1 | tail -20
-    # Don't fail restore if FBE key install partially fails - the metadata layer is
-    # the critical one (re-encrypts data under the current key). FBE policy restore
-    # may warn but TWRP libtar ignores fscrypt_policy_set errors anyway.
-else
-    echo "WARN: /system/bin/de_keyinstall not found - FBE keys NOT installed"
-    echo "      libtar will fail to set FBE policies, but metadata layer IS encrypted"
-fi
+# WIP110: FBE keys are NO LONGER installed here. /data was just formatted (empty), so the key
+# material (/data/unencrypted/key, /data/misc/.../user_keys, spblob, locksettings.db) is NOT on
+# disk yet - it lives in the backup tar and is extracted later. A de_keyinstall call here always
+# failed with "missing key material" and left the keyring empty, which then broke the main restore
+# (libtar applies an fscrypt policy to each dir, but writing into a policy'd dir with no key in the
+# keyring fails ENOKEY -> "tar_extract_file failed" -> ERROR 255). The keys are now loaded by the
+# STAGED preload in partition.cpp::Restore_Tar() (WIP110): it extracts the key material from the
+# tar in dependency order (unencrypted -> DK, misc -> DE0, system_de+locksettings -> CE0), running
+# de_keyinstall after each stage, BEFORE the full extract. So this hook only has to leave /data
+# mounted on the dm-default-key device, which it has done above.
 
-echo "===== pre_restore_data done: /data on dm-mapper, ready for tar restore ====="
+echo "===== pre_restore_data done: /data on dm-mapper, ready for staged tar restore ====="
 exit 0
