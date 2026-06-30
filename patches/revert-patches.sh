@@ -25,7 +25,8 @@ REC="$TOP/bootable/recovery"
 #   0003-restore-metadata-encrypt.patch -> partition.cpp
 #   0004-restore-metadata-first.patch   -> partitionmanager.cpp
 #   0005-fscrypt-inject-maps.patch      -> partition.cpp
-FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp"
+#   0006-staged-fbe-restore.patch       -> partition.cpp, twrpTar.cpp, twrpTar.hpp
+FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp"
 
 if [ ! -d "$REC" ]; then
     echo "pa1q-revert: bootable/recovery not found at '$REC'"
