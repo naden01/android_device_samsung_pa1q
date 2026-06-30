@@ -1,0 +1,68 @@
+--- a/gui/theme/common/portrait.xml
++++ b/gui/theme/common/portrait.xml
+@@ -2661,7 +2661,7 @@
+ 
+ 			<slider>
+ 				<text>{@swipe_restore=Swipe to Restore}</text>
+-				<action function="page">restore_run</action>
++				<action function="fbe_pin_check"/>
+ 			</slider>
+ 
+ 			<action>
+@@ -4946,6 +4946,56 @@
+ 			</button>
+ 
+ 			<template name="keyboardtemplate"/>
++		</page>
++
++		<page name="fbe_restore_pin">
++			<template name="page"/>
++
++			<text style="text_l">
++				<placement x="%col1_x_header%" y="%row3_header_y%"/>
++				<text>{@restore_hdr=Restore}</text>
++			</text>
++
++			<text style="text_m">
++				<placement x="%col1_x_header%" y="%row4_header_y%"/>
++				<text>{@fbe_restore_pin_hdr=Lockscreen Credential}</text>
++			</text>
++
++			<text style="text_m_accent">
++				<placement x="%center_x%" y="%row2_y%" placement="5"/>
++				<text>{@fbe_restore_pin_enter=This backup is protected by a lockscreen PIN/password. Enter it to restore app data:}</text>
++			</text>
++
++			<input>
++				<placement x="%indent%" y="%row3_input_y%" w="%content_width%" h="%input_height%"/>
++				<text>%tw_fbe_pin_display%</text>
++				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
++				<restrict minlen="1" maxlen="254"/>
++				<action function="page">restore_run</action>
++			</input>
++
++			<fill color="%accent_color%">
++				<placement x="%indent%" y="row4a_y" w="%content_width%" h="input_line_width" placement="1"/>
++			</fill>
++
++			<text style="text_m">
++				<placement x="%indent%" y="%row5_y%"/>
++				<text>{@fbe_restore_pin_hint=Type the PIN/password used on the backed-up device, then press Enter (or Start).}</text>
++			</text>
++
++			<button style="main_button_half_height">
++				<placement x="%indent%" y="%row10_y%"/>
++				<text>{@cancel_btn=Cancel}</text>
++				<action function="page">restore_select</action>
++			</button>
++
++			<button style="main_button_half_height">
++				<placement x="%center_x%" y="%row10_y%"/>
++				<text>{@start_btn=Start}</text>
++				<action function="page">restore_run</action>
++			</button>
++
++			<template name="keyboardtemplate"/>
+ 		</page>
+ 
+ 		<page name="decrypt_pattern">

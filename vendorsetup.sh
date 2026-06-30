@@ -18,6 +18,10 @@ PATCH_FSCRYPT_INJECT="$DEVICE_PATH/patches/0005-fscrypt-inject-maps.patch"
 # WIP110: staged FBE-key preload during restore (extract key material + de_keyinstall per layer
 # BEFORE the full extract, so the keyring is populated when libtar applies fscrypt policies)
 PATCH_STAGED_RESTORE="$DEVICE_PATH/patches/0006-staged-fbe-restore.patch"
+# WIP112: lockscreen PIN/password for restore (GUI prompt + passthrough to de_keyinstall) and
+# backup gate (refuse /data backup while the CE layer is still locked)
+PATCH_FBE_PIN="$DEVICE_PATH/patches/0007-fbe-restore-pin.patch"
+PATCH_FBE_PIN_THEME="$DEVICE_PATH/patches/0008-fbe-restore-pin-theme.patch"
 
 apply_patch() {
     local patch="$1"
@@ -77,6 +81,8 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_RESTORE_METADATA_FIRST" "$TWRP_ROOT/partitionmanager.cpp" "WIP97:partitionmanager\.cpp"
     apply_patch "$PATCH_FSCRYPT_INJECT" "$TWRP_ROOT/partition.cpp" "inject_fbe_maps"
     apply_patch "$PATCH_STAGED_RESTORE" "$TWRP_ROOT/partition.cpp" "WIP110"
+    apply_patch "$PATCH_FBE_PIN" "$TWRP_ROOT/partition.cpp" "WIP112"
+    apply_patch "$PATCH_FBE_PIN_THEME" "$TWRP_ROOT/gui/theme/common/portrait.xml" "fbe_restore_pin"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
