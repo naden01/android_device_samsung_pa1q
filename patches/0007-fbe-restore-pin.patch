@@ -1,0 +1,175 @@
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -2774,6 +2774,31 @@
+ 	if (!Mount(true))
+ 		return false;
+ 
++	// WIP112: backup gate for metadata-encrypted /data. If the device has a lockscreen
++	// credential, decrypt.sh only unlocks the DE layer at boot; the CE layer (/data/data,
++	// /data/media) stays LOCKED until the user runs `password <PIN>` in the TWRP terminal.
++	// Backing up while CE is locked would archive encrypted/garbage app data, so refuse here.
++	// Authoritative marker: de_keyinstall writes /tmp/.ce_sp (128B, tmpfs) ONLY after a
++	// successful CE unlock (empty-LSKF auto-unlock at boot OR `password <PIN>`); its presence
++	// means CE is open. If /data has a credential protector (a .pwd in the live spblob) AND
++	// /tmp/.ce_sp is absent, CE is still locked -> abort with instructions.
++	if (Mount_Point == "/data" && !Key_Directory.empty()) {
++		bool ce_unlocked = TWFunc::Path_Exists("/tmp/.ce_sp");
++		bool has_credential = false;
++		{
++			string probe;
++			TWFunc::Exec_Cmd("ls /data/system_de/0/spblob/*.pwd 2>/dev/null | head -1", probe, false);
++			has_credential = !probe.empty();
++		}
++		if (has_credential && !ce_unlocked) {
++			LOGERR("WIP112: /data has a lockscreen credential but the CE layer is still LOCKED.\n");
++			gui_msg(Msg(msg::kError, "fbe_backup_locked=Cannot back up /data: it is protected by a lockscreen PIN/password and the encrypted (CE) layer is still locked. Open the TWRP Terminal and run:  password <your-PIN>   then start the backup again."));
++			return false;
++		}
++		if (has_credential)
++			LOGINFO("WIP112: CE layer unlocked (/tmp/.ce_sp present) - backup allowed\n");
++	}
++
+ 	TWFunc::GUI_Operation_Text(TW_BACKUP_TEXT, Backup_Display_Name, gui_parse_text("{@backing}"));
+ 	gui_msg(Msg("backing_up=Backing up {1}...")(Backup_Display_Name));
+ 
+@@ -3139,11 +3164,32 @@
+ 			std::vector<std::string> stage;
+ 			LOGINFO("WIP110: staged FBE key preload before main restore\n");
+ 
++			// WIP112: lockscreen credential (PIN/password) for the CE layer. The GUI
++			// fbe_pin_check action stores it in tw_fbe_pin when the backup carries a
++			// credential (a .pwd in the spblob); empty => empty-LSKF (no credential).
++			// de_keyinstall is run as a shell command via popen (sh -c), so the PIN MUST be
++			// single-quote escaped to survive special characters and prevent shell injection:
++			// wrap in '...' and replace every embedded ' with '\'' . Passed as argv[1].
++			string fbe_pin;
++			DataManager::GetValue("tw_fbe_pin", fbe_pin);
++			string de_cmd = de_keyinstall;
++			if (!fbe_pin.empty()) {
++				string q;
++				for (size_t i = 0; i < fbe_pin.size(); ++i) {
++					if (fbe_pin[i] == '\'') q += "'\\''";
++					else q += fbe_pin[i];
++				}
++				de_cmd = de_keyinstall + " '" + q + "'";
++				LOGINFO("WIP112: lockscreen credential supplied for CE unlock (len=%zu)\n", fbe_pin.size());
++			} else {
++				LOGINFO("WIP112: no lockscreen credential (empty LSKF path)\n");
++			}
++
+ 			// Stage 1: systemwide DE key material (plaintext) -> install DK -> inject DK
+ 			stage.clear();
+ 			stage.push_back("unencrypted/");
+ 			tar.extractGlob(stage);
+-			TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++			TWFunc::Exec_Cmd(de_cmd, kresult, true);
+ 			LOGINFO("WIP110 stage1 (DK) de_keyinstall:\n%s\n", kresult.c_str());
+ 			inject_fbe_maps();
+ 
+@@ -3152,7 +3198,7 @@
+ 			stage.clear();
+ 			stage.push_back("misc/");
+ 			tar.extractGlob(stage);
+-			TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++			TWFunc::Exec_Cmd(de_cmd, kresult, true);
+ 			LOGINFO("WIP110 stage2 (DE0) de_keyinstall:\n%s\n", kresult.c_str());
+ 			inject_fbe_maps();
+ 
+@@ -3169,9 +3215,14 @@
+ 			stage.push_back("system_de/");
+ 			stage.push_back("system/");
+ 			tar.extractGlob(stage);
+-			TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++			TWFunc::Exec_Cmd(de_cmd, kresult, true);
+ 			LOGINFO("WIP110 stage3 (CE0) de_keyinstall:\n%s\n", kresult.c_str());
+ 			inject_fbe_maps();
++
++			// WIP112: scrub the credential from the command string and the DataManager
++			// variable now that all key stages are done - do not keep it in memory.
++			if (!de_cmd.empty()) de_cmd.assign(de_cmd.size(), '*');
++			DataManager::SetValue("tw_fbe_pin", "");
+ 		} else {
+ 			LOGINFO("WIP110: %s not found - skipping staged key preload (restore may fail with ENOKEY)\n", de_keyinstall.c_str());
+ 		}
+--- a/gui/action.cpp
++++ b/gui/action.cpp
+@@ -210,6 +210,9 @@
+ 		ADD_ACTION(enablefastboot);
+ 		ADD_ACTION(changeterminal);
+ 		ADD_ACTION(unmapsuperdevices);
++		// WIP112: runs in the CALLER thread (cheap tar-header scan) so it can gui_changePage
++		// straight to restore_run/fbe_restore_pin without colliding with the nandroid thread.
++		ADD_ACTION(fbe_pin_check);
+ 
+ 		// remember actions that run in the caller thread
+ 		for (mapFunc::const_iterator it = mf.begin(); it != mf.end(); ++it)
+@@ -1695,6 +1698,59 @@
+ 	return 0;
+ }
+ 
++// WIP112: decide whether the selected /data backup needs a lockscreen credential (PIN/password)
++// before restore, and route the GUI accordingly. Runs in the CALLER thread (registered in the
++// non-threaded action block), so gui_changePage to restore_run/fbe_restore_pin does NOT collide
++// with the nandroid restore thread ("Another threaded action is already running"). The credential
++// is needed iff the backup's data archive carries a synthetic-password protector with a real
++// credential - i.e. a "system_de/0/spblob/<handle>.pwd" entry exists in data.f2fs.win (an
++// empty-LSKF device has only .weaver/.spblob, no .pwd). We probe with `tar -tf | grep` over the
++// archive HEADERS only (filenames), which is cheap (~0.4s, no payload read). If a credential is
++// present we show fbe_restore_pin (our OWN keyboard page; it does NOT use the broken native FBE
++// decrypt). Otherwise we go straight to restore_run. The actual CE unlock is done later by the
++// staged de_keyinstall in partition.cpp::Restore_Tar using tw_fbe_pin.
++int GUIAction::fbe_pin_check(std::string arg __unused)
++{
++	string Restore_Path;
++	DataManager::GetValue("tw_restore", Restore_Path);
++	// Always clear any stale credential first.
++	DataManager::SetValue("tw_fbe_pin", "");
++	DataManager::SetValue("tw_fbe_need_pin", 0);
++
++	// Find the data archive (data.f2fs.win, possibly split data.f2fs.win000).
++	string data_archive;
++	if (TWFunc::Path_Exists(Restore_Path + "/data.f2fs.win"))
++		data_archive = Restore_Path + "/data.f2fs.win";
++	else if (TWFunc::Path_Exists(Restore_Path + "/data.f2fs.win000"))
++		data_archive = Restore_Path + "/data.f2fs.win000";
++
++	bool need_pin = false;
++	if (!data_archive.empty()) {
++		// List archive entries and look for a credential protector (.pwd in spblob).
++		// Header-only scan; grep -m1 stops at the first match.
++		string cmd = "tar -tf '" + data_archive + "' 2>/dev/null | grep -m1 -E 'system_de/0/spblob/.*\\.pwd$'";
++		string result;
++		TWFunc::Exec_Cmd(cmd, result, false);
++		if (!result.empty()) {
++			need_pin = true;
++			LOGINFO("WIP112: backup has a lockscreen credential (.pwd found: %s) -> prompting for PIN\n", result.c_str());
++		} else {
++			LOGINFO("WIP112: no credential in backup (empty LSKF) -> no PIN prompt\n");
++		}
++	} else {
++		LOGINFO("WIP112: no data archive found in '%s' - skipping PIN prompt\n", Restore_Path.c_str());
++	}
++
++	if (need_pin) {
++		DataManager::SetValue("tw_fbe_need_pin", 1);
++		DataManager::SetValue("tw_password_fail", 0);
++		gui_changePage("fbe_restore_pin");
++	} else {
++		gui_changePage("restore_run");
++	}
++	return 0;
++}
++
+ int GUIAction::repair(std::string arg __unused)
+ {
+ 	int op_status = 0;
+--- a/gui/objects.hpp
++++ b/gui/objects.hpp
+@@ -358,6 +358,7 @@
+ 	int installsu(std::string arg);
+ 	int fixsu(std::string arg);
+ 	int decrypt_backup(std::string arg);
++	int fbe_pin_check(std::string arg);
+ 	int repair(std::string arg);
+ 	int resize(std::string arg);
+ 	int changefilesystem(std::string arg);
