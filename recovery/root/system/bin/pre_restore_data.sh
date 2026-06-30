@@ -240,9 +240,16 @@ if ! /system/bin/make_f2fs -O encrypt,extra_attr,compression,verity /dev/block/m
 fi
 echo "make_f2fs completed on dm-default-key device"
 
-# Mount /data on the dm device
-echo "Step 5c: mounting /data on dm-default-key..."
-if ! mount -t f2fs -o rw,lazytime,seclabel,nosuid,nodev,noatime /dev/block/mapper/userdata /data 2>&1; then
+# Mount /data on the dm device.
+# CRITICAL: the 'inlinecrypt' option is MANDATORY. The FBE keys on this device are
+# HW-wrapped (mode wrappedkey_v0), and FS_IOC_ADD_ENCRYPTION_KEY with FLAG_HW_WRAPPED
+# returns errno=95 (EOPNOTSUPP "not supported on transport endpoint") if /data is NOT
+# mounted with inline crypto. Without it the staged de_keyinstall in Restore_Tar cannot
+# install DK -> /data/misc stays locked -> extractGlob fails on the first encrypted dir
+# -> ERROR 255. The live vold mountFstab path always includes inlinecrypt; this manual
+# mount must match it. (Proven: errno=95 disappears the moment /data has inlinecrypt.)
+echo "Step 5c: mounting /data on dm-default-key (with inlinecrypt for HW-wrapped FBE)..."
+if ! mount -t f2fs -o rw,lazytime,seclabel,nosuid,nodev,noatime,inlinecrypt /dev/block/mapper/userdata /data 2>&1; then
     echo "ERROR: mount /data on dm-default-key failed"
     exit 1
 fi
