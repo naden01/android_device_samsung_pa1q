@@ -47,6 +47,7 @@ for patch in "$_SELF"/*.patch; do
         0006-staged-fbe-restore.patch)   marker="WIP110:partition.cpp" ;;
         0007-fbe-restore-pin.patch)      marker="WIP112:partition.cpp" ;;
         0008-fbe-restore-pin-theme.patch) marker="fbe_restore_pin:gui/theme/common/portrait.xml" ;;
+        0009-decrypt-data-helper.patch)   marker="WIP119:decrypt-data-helper:gui/action.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then

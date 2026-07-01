@@ -22,6 +22,8 @@ PATCH_STAGED_RESTORE="$DEVICE_PATH/patches/0006-staged-fbe-restore.patch"
 # backup gate (refuse /data backup while the CE layer is still locked)
 PATCH_FBE_PIN="$DEVICE_PATH/patches/0007-fbe-restore-pin.patch"
 PATCH_FBE_PIN_THEME="$DEVICE_PATH/patches/0008-fbe-restore-pin-theme.patch"
+# WIP119: route Decrypt Data button through password-script instead of broken stock A12.1 crypto
+PATCH_DECRYPT_HELPER="$DEVICE_PATH/patches/0009-decrypt-data-helper.patch"
 
 apply_patch() {
     local patch="$1"
@@ -83,6 +85,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_STAGED_RESTORE" "$TWRP_ROOT/partition.cpp" "WIP110"
     apply_patch "$PATCH_FBE_PIN" "$TWRP_ROOT/partition.cpp" "WIP112"
     apply_patch "$PATCH_FBE_PIN_THEME" "$TWRP_ROOT/gui/theme/common/portrait.xml" "fbe_restore_pin"
+    apply_patch "$PATCH_DECRYPT_HELPER" "$TWRP_ROOT/gui/action.cpp" "WIP119:decrypt-data-helper"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
