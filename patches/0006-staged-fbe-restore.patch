@@ -16,7 +16,7 @@
  	void setsize(unsigned long long backup_size);
 --- a/twrpTar.cpp
 +++ b/twrpTar.cpp
-@@ -728,6 +728,132 @@
+@@ -728,6 +728,138 @@
  	return 0;
  }
  
@@ -67,14 +67,16 @@
 +	}
 +
 +	int rc = 0, matched = 0;
-+	// WIP116 early-exit: read parts only while we keep finding our prefixes. Once a part yields
-+	// ZERO matches AFTER we've already matched something, the key-material zone is behind us, so
-+	// stop opening further parts. This is the ONLY safe split early-exit: per-archive tail-cutting
-+	// is NOT safe because a single stage can search two prefixes that sit far apart in one part
-+	// with hundreds of foreign entries between them (e.g. system/ and system_de/ in the same
-+	// part), and it naturally handles a folder that straddles a part boundary (both parts match,
-+	// both are read; the first non-matching part ends the scan).
-+	bool found_any = false;
++	// WIP116 early-exit: a stage searches one or more prefixes (e.g. stage3 = system_de/ + system/).
++	// Each top-level folder is written contiguously by readdir (verified: zero foreign entries
++	// inside a folder's block), but DIFFERENT folders can be far apart, separated by the huge
++	// /data/data tree spanning several parts. So we may ONLY stop once EVERY prefix has matched at
++	// least once AND the current part added nothing new. That keeps reading across /data/data
++	// parts until a late folder (e.g. system_de/ in a much later part) is found, and also covers a
++	// folder that straddles a part boundary (the trailing part still matches, so we keep going;
++	// only the first all-found part with zero new matches ends the scan). Per-archive tail-cutting
++	// is NOT safe: two prefixes can sit far apart within one part with foreign entries between.
++	std::vector<bool> seen(prefixes.size(), false);
 +	string saved_tarfn = tarfn;
 +	for (size_t a = 0; a < archives.size() && rc == 0; ++a) {
 +		int matched_this_archive = 0;
@@ -110,9 +112,10 @@
 +			if (fn[0] == '/') fn++;
 +			if (strncmp(fn, "data/", 5) == 0) fn += 5;
 +			bool want = false;
++			size_t want_idx = 0;
 +			for (size_t p = 0; p < prefixes.size(); ++p) {
 +				const std::string& pre = prefixes[p];
-+				if (strncmp(fn, pre.c_str(), pre.size()) == 0) { want = true; break; }
++				if (strncmp(fn, pre.c_str(), pre.size()) == 0) { want = true; want_idx = p; break; }
 +			}
 +			if (!want) {
 +				if (TH_ISREG(t) && tar_skip_regfile(t) != 0) { rc = -1; break; }
@@ -126,17 +129,20 @@
 +			}
 +			matched++;
 +			matched_this_archive++;
++			seen[want_idx] = true;
 +		}
 +		if (i == -1)
 +			rc = -1;
 +		if (tar_close(t) != 0)
 +			LOGINFO("extractGlob: unable to close tar file\n");
-+		// WIP116 early-exit: stop once a part contributes nothing after we've started matching.
-+		if (matched_this_archive > 0) {
-+			found_any = true;
-+		} else if (found_any) {
-+			LOGINFO("extractGlob: early-exit after %zu/%zu part(s) - key-material zone passed\n",
-+			        a + 1, archives.size());
++		// WIP116 early-exit: stop only when EVERY prefix has matched at least once AND this part
++		// added nothing new (its folder block is closed). Until all prefixes are seen we keep
++		// opening parts, so a late folder separated by /data/data parts is still reached.
++		bool all_seen = true;
++		for (size_t p = 0; p < seen.size(); ++p) { if (!seen[p]) { all_seen = false; break; } }
++		if (all_seen && matched_this_archive == 0) {
++			LOGINFO("extractGlob: early-exit after %zu/%zu part(s) - all %zu prefix(es) found\n",
++			        a + 1, archives.size(), prefixes.size());
 +			break;
 +		}
 +	}
