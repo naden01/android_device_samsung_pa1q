@@ -1,0 +1,73 @@
+--- a/gui/action.cpp	2026-07-03 00:33:40.747981200 +0300
++++ b/gui/action.cpp	2026-07-03 00:33:40.783577100 +0300
+@@ -1522,46 +1522,36 @@
+ 	if (simulate) {
+ 		simulate_progress_bar();
+ 	} else {
++		// --- our stack: password-script instead of stock A12.1 ---
+ 		string Password;
+-		string userID;
+ 		DataManager::GetValue("tw_crypto_password", Password);
+ 
+-		if (DataManager::GetIntValue(TW_IS_FBE)) {  // for FBE
+-			DataManager::GetValue("tw_crypto_user_id", userID);
+-			if (userID != "") {
+-				op_status = PartitionManager.Decrypt_Device(Password, atoi(userID.c_str()));
+-				if (userID != "0") {
+-					if (op_status != 0)
+-						op_status = 1;
+-					operation_end(op_status);
+-	          		return 0;
+-				}
+-			} else {
+-				LOGINFO("User ID not found\n");
+-				op_status = 1;
+-			}
+-		::sleep(1);
+-		} else {  // for FDE
+-			op_status = PartitionManager.Decrypt_Device(Password);
+-		}
+-
+-		if (op_status != 0)
++		// If password is empty but the device has a lockscreen credential,
++		// reject it so the user enters the real password.
++		if (Password.empty() && TWFunc::Path_Exists("/data/system_de/0/spblob")) {
+ 			op_status = 1;
+-		else {
+-			DataManager::SetValue(TW_IS_ENCRYPTED, 0);
+-
+-			int has_datamedia;
+-
+-			// Check for a custom theme and load it if exists
+-			DataManager::GetValue(TW_HAS_DATA_MEDIA, has_datamedia);
+-			if (has_datamedia != 0) {
+-				if (tw_get_default_metadata(DataManager::GetCurrentStoragePath().c_str()) != 0) {
+-					LOGINFO("Failed to get default contexts and file mode for storage files.\n");
+-				} else {
+-					LOGINFO("Got default contexts and file mode for storage files.\n");
++		} else {
++			// Escape single quotes in password for shell safety
++			string escaped = Password;
++			for (size_t i = 0; i < escaped.size(); ++i)
++				if (escaped[i] == '\'') {
++					escaped.insert(i, "\\");
++					i += 2;
++				}
++			op_status = TWFunc::Exec_Cmd("/system/bin/password '" + escaped + "'", true);
++			if (op_status == 0) {
++				DataManager::SetValue(TW_IS_ENCRYPTED, 0);
++				int has_datamedia;
++				DataManager::GetValue(TW_HAS_DATA_MEDIA, has_datamedia);
++				if (has_datamedia != 0) {
++					if (tw_get_default_metadata(DataManager::GetCurrentStoragePath().c_str()) != 0) {
++						LOGINFO("Failed to get default contexts and file mode for storage files.\n");
++					} else {
++						LOGINFO("Got default contexts and file mode for storage files.\n");
++					}
+ 				}
++				PartitionManager.Decrypt_Adopted();
+ 			}
+-			PartitionManager.Decrypt_Adopted();
+ 		}
+ 	}
+ 

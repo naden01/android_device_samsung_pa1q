@@ -28,6 +28,7 @@ REC="$TOP/bootable/recovery"
 #   0006-staged-fbe-restore.patch       -> partition.cpp, twrpTar.cpp, twrpTar.hpp
 #   0007-fbe-restore-pin.patch          -> partition.cpp, gui/action.cpp, gui/objects.hpp
 #   0008-fbe-restore-pin-theme.patch    -> gui/theme/common/portrait.xml
+#   0009-decrypt-data-helper.patch      -> gui/action.cpp
 FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml"
 
 if [ ! -d "$REC" ]; then
