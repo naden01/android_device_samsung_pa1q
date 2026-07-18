@@ -20,17 +20,17 @@
 +
 +			<text style="text_l">
 +				<placement x="%col1_x_header%" y="%row3_header_y%"/>
-+				<text>{@restore_hdr=Restore}</text>
++				<text>Restore</text>
 +			</text>
 +
 +			<text style="text_m">
 +				<placement x="%col1_x_header%" y="%row4_header_y%"/>
-+				<text>{@fbe_restore_pin_hdr=Lockscreen Credential}</text>
++				<text>Lockscreen Credential</text>
 +			</text>
 +
 +			<text style="text_m_accent">
 +				<placement x="%center_x%" y="%row2_y%" placement="5"/>
-+				<text>{@fbe_restore_pin_enter=This backup is protected by a lockscreen PIN/password. Enter it to restore app data:}</text>
++				<text>This backup is protected by a lockscreen PIN/password. Enter it to restore app data:</text>
 +			</text>
 +
 +			<input>
@@ -47,18 +47,18 @@
 +
 +			<text style="text_m">
 +				<placement x="%indent%" y="%row5_y%"/>
-+				<text>{@fbe_restore_pin_hint=Type the PIN/password used on the backed-up device, then press Enter (or Start).}</text>
++				<text>Type the PIN/password used on the backed-up device, then press Enter (or Start).</text>
 +			</text>
 +
 +			<button style="main_button_half_height">
 +				<placement x="%indent%" y="%row10_y%"/>
-+				<text>{@cancel_btn=Cancel}</text>
++				<text>Cancel</text>
 +				<action function="page">restore_select</action>
 +			</button>
 +
 +			<button style="main_button_half_height">
 +				<placement x="%center_x%" y="%row10_y%"/>
-+				<text>{@start_btn=Start}</text>
++				<text>Start</text>
 +				<action function="page">restore_run</action>
 +			</button>
 +
