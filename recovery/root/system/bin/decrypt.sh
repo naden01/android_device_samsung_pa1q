@@ -456,30 +456,12 @@ done
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "SUCCESS: /data mounted (~$((m * 100))ms)"; grep -E " /data " /proc/mounts
 
-    # BIOMETRIC-SAFETY (WIP121): protect persistent.sqlite from A16 keystore2 super-encryption.
-    # ROOT CAUSE (proven live 2026-07-19): after /data mounts, our running A16 keystore2 detects
-    # the new filesystem and opens /data/misc/keystore/persistent.sqlite RW, re-super-encrypting
-    # every stored key with the A16 KeyMint shared secret (~195ms window). Android's A12 keystore2
-    # on next boot finds keys wrapped by a foreign secret -> fingerprint/face HAL error=8 vendor=1004
-    # "biometric data damaged". The fix: immediately bind-mount a ramdisk copy over the DB path so
-    # keystore2 writes to tmpfs instead of disk; unmount after keystore2 is stopped -> real DB intact.
-    # Race note: this runs in the first shell statements after mount detection; keystore2's async DB
-    # open is triggered by vold's storage-available notification, giving us a ~tens-of-ms head start.
+    # BIOMETRIC-SAFETY (WIP121): /data/misc/keystore/ is still FBE systemwide-DE encrypted at
+    # this point - only the metadata (dm-default-key) layer is open. [ -f "$KS2_DB" ] would be
+    # false here. The bind-mount runs AFTER de_keyinstall installs the DE key (section 6a below).
     KS2_DB=/data/misc/keystore/persistent.sqlite
     KS2_SNAP=/tmp/.ks2_snap.db
     rm -f "$KS2_SNAP" 2>/dev/null
-    if [ -f "$KS2_DB" ]; then
-        if cp -a "$KS2_DB" "$KS2_SNAP" 2>/dev/null; then
-            if mount --bind "$KS2_SNAP" "$KS2_DB" 2>/dev/null; then
-                echo "ks2-db-protected: bind-mount active ($KS2_SNAP over $KS2_DB) - real DB shielded from A16 keystore2"
-            else
-                echo "ks2-db-protect: WARN bind-mount failed - DB unprotected (biometrics may need re-enroll)"
-                rm -f "$KS2_SNAP" 2>/dev/null
-            fi
-        else
-            echo "ks2-db-protect: WARN cp failed - DB unprotected"
-        fi
-    fi
     # WIP63: tell TWRP (crypto now compiled in) that /data is ALREADY decrypted on the dm device.
     # On its next Setup_Data_Partition scan TWRP reads ro.crypto.fs_crypto_blkdev and sets
     # Decrypted_Block_Device = this dm -> TW_IS_ENCRYPTED=0 (no "Decrypt Data" button) and
@@ -543,6 +525,25 @@ if grep -qE " /data " /proc/mounts 2>/dev/null \
     echo "----- FBE: install DE+CE keys (de_keyinstall: all three layers) -----"
     lrun /system/bin/de_keyinstall 2>&1
     echo "fscrypt keyring now: $(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
+    # BIOMETRIC-SAFETY (WIP121): bind-mount persistent.sqlite NOW - systemwide DE key was just
+    # installed above via FS_IOC_ADD_ENCRYPTION_KEY, so /data/misc/keystore/ is accessible for
+    # the first time this boot. keystore2 gets notified of DE-unlock asynchronously and races to
+    # open the file RW; we grab it here first, immediately after de_keyinstall returns.
+    # KS2_DB/KS2_SNAP defined in the SUCCESS block above (always set when /data mounted).
+    if [ -n "$KS2_SNAP" ] && [ -f "$KS2_DB" ]; then
+        if cp -a "$KS2_DB" "$KS2_SNAP" 2>/dev/null; then
+            if mount --bind "$KS2_SNAP" "$KS2_DB" 2>/dev/null; then
+                echo "ks2-db-protected: bind-mount active ($KS2_SNAP over $KS2_DB) - real DB shielded from A16 keystore2"
+            else
+                echo "ks2-db-protect: WARN bind-mount failed - DB unprotected (biometrics may need re-enroll)"
+                rm -f "$KS2_SNAP" 2>/dev/null
+            fi
+        else
+            echo "ks2-db-protect: WARN cp failed - DB unprotected"
+        fi
+    else
+        echo "ks2-db-protect: WARN KS2_DB not found after DE-unlock (unexpected - biometrics may break)"
+    fi
 else
     echo "FBE DE-key install skipped (no /data, no key material, or binary missing)"
 fi
