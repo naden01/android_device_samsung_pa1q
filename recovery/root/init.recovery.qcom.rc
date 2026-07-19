@@ -245,12 +245,19 @@ service decrypt-qseecomd /system/bin/hal_run.sh /vendor/bin/qseecomd
     disabled
 
 # KeyMint - stock user system, group system drmrpc.
+# WIP123: oneshot so a crash does NOT auto-respawn. The old behaviour let init respawn
+# keymint every ~130ms while the A16 servicemanager was still committing its VINTF manifest
+# (~2s after sm start), so keymint's addService got status=-3 (isVintfDeclared==false) and
+# SIGABRT'd ~11 times before sm was ready. With oneshot, decrypt.sh drives the (re)starts
+# itself and only starts keymint AFTER probing that sm actually answers isDeclared - so
+# keymint comes up ONCE, cleanly. Fewer TZ-touching restarts = cleaner state for the FP TA.
 service decrypt-keymint /system/bin/hal_run.sh /vendor/bin/hw/android.hardware.security.keymint-service
     class main
     user system
     group system drmrpc
     seclabel u:r:recovery:s0
     disabled
+    oneshot
 
 # keystore2 - from the dump, DB dir /tmp/misc/keystore (matches TWRP's keystore2.rc).
 service decrypt-keystore2 /system/bin/hal_run.sh /decrypt/system/bin/keystore2 /tmp/misc/keystore

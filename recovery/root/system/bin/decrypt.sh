@@ -279,46 +279,42 @@ n=0; while [ "$n" -lt 20 ] && [ "$(getprop init.svc.decrypt-hermes)" = "running"
 done
 start_svc decrypt-hermes
 
-# VINTF-overlay readiness gate for KeyMint (WIP70, fixes the early SIGABRT cascade). The A16
-# servicemanager (637) must FINISH reading the VINTF manifest BEFORE keymint tries to register
-# IKeyMintDevice/default - else keymint's addService gets status=-3 (manifest not found) ->
-# SIGABRT. servicemanager.ready=true means sm owns /dev/binder, but it reads VINTF *lazily* on
-# the first getTransport or during init service registration - so "ready" alone is not enough.
-# Wait for a marker that proves sm HAS read /vendor/etc/vintf: the "Multiple same specifications"
-# line sm logs when it sees the duplicate strongbox entry we deliberately left in the overlay
-# fragments (the real strongbox fragment is stripped, but if *any* VINTF file has the pattern
-# we'll match). Bounded to 60x0.1s=6s; degrade-safe (a miss just risks the -3, init will respawn).
-n=0
-while [ "$n" -lt 60 ]; do
-    logcat -d -b all 2>/dev/null | grep -q "Multiple same specifications" && break
-    n=$((n + 1)); sleep 0.1
+# KeyMint startup (WIP123 - crash-cascade fix). ROOT CAUSE proven from a live TWRP trace:
+# the A16 servicemanager owns the context manager (servicemanager.ready=true) and even logs
+# its FIRST VINTF scan ("Multiple same specifications") ~2s BEFORE it can actually answer
+# isVintfDeclared(IKeyMintDevice/default)==true. In that ~2s window keymint's addService
+# returns status=-3 -> the process CHECK-fails and SIGABRTs in ~6ms (well before the skeymast
+# TA even loads). The old code let init auto-respawn it every ~130ms -> ~11 crashes per boot.
+# The old "Multiple same specifications" gate was worthless: it matched a stale ring-buffer
+# line and exited in ~0ms, then the real -3 cascade ran anyway.
+#
+# Fix: decrypt-keymint is now `oneshot` (rc) so a crash leaves it "stopped" (no auto-respawn),
+# and WE drive the retries here with an increasing backoff. Each retry gives sm more time to
+# commit the manifest; the first attempt that lands after sm is ready registers all 6 SKeymint
+# services once and stays up. "Adding SKeymint X.0 services is done" is logged ONLY after every
+# addService() succeeds - never on a -3 crash - so it is an unambiguous success marker.
+# Fresh-window baseline so we never match a prior decrypt run's success line.
+KM_DONE="Adding SKeymint.*services is done"
+km_base=$(logcat -d -b all 2>/dev/null | grep -cE "$KM_DONE")
+km_ok=0
+for attempt in 1 2 3 4 5 6 7 8; do
+    start_svc decrypt-keymint
+    # give this instance up to ~1.6s to either finish registration or die (oneshot->stopped)
+    j=0
+    while [ "$j" -lt 32 ]; do
+        [ "$(logcat -d -b all 2>/dev/null | grep -cE "$KM_DONE")" -gt "$km_base" ] && { km_ok=1; break; }
+        # oneshot: a crashed instance settles to "stopped" (init does NOT respawn it)
+        [ "$(getprop init.svc.decrypt-keymint)" = "stopped" ] && break
+        j=$((j + 1)); sleep 0.05
+    done
+    [ "$km_ok" = 1 ] && { echo "keymint registered on attempt $attempt (~$(( (attempt - 1) * 400 + j * 50 ))ms)"; break; }
+    # crashed on -3 (sm not ready yet). Back off a bit longer each time, then retry.
+    km_ms=$((attempt * 400))
+    echo "keymint attempt $attempt hit VINTF-not-ready (-3), backing off ${km_ms}ms"
+    setprop ctl.stop decrypt-keymint 2>/dev/null
+    sleep $((km_ms / 1000)).$(printf '%03d' $((km_ms % 1000)))
 done
-[ "$n" -ge 60 ] && echo "WARN: VINTF readiness poll timeout - keymint may crash on -3"
-echo "VINTF overlay ready for keymint registration (~$((n * 100))ms)"
-
-start_svc decrypt-keymint
-# WIP76: old poll ("keymint-service: adding") fired on the FIRST-CRASH instance too:
-# keymint logs "adding..." then immediately hits CHECK(status=-3) SIGABRT (VINTF race).
-# That false-positive made decrypt.sh proceed with a dead keymint → init entered its 5s
-# backoff → keystore2/vold stalled for ~5s waiting for a service that wasn't there.
-# Fix A: use "Adding SKeymint X.0 services is done" — only logged after ALL addService()
-#        calls succeed; never appears on the crashed first instance.
-# Fix B: if init enters restarting state, bypass the 5s backoff with an immediate stop+start.
-n=0; while [ "$n" -lt 80 ]; do
-    logcat -d -b all 2>/dev/null | grep -q "Adding SKeymint.*services is done" && {
-        echo "keymint fully registered (~$((n * 100))ms)"; break; }
-    if [ "$(getprop init.svc.decrypt-keymint)" = "restarting" ]; then
-        setprop ctl.stop decrypt-keymint
-        m=0; while [ "$m" -lt 15 ]; do
-            s=$(getprop init.svc.decrypt-keymint)
-            { [ "$s" != "running" ] && [ "$s" != "restarting" ]; } && break
-            m=$((m+1)); sleep 0.05; done
-        setprop ctl.start decrypt-keymint
-        echo "keymint: first-crash detected, bypassed 5s backoff, restarted"
-    fi
-    n=$((n+1)); sleep 0.1
-done
-[ "$n" -ge 80 ] && echo "WARN: keymint poll timeout"
+[ "$km_ok" = 1 ] || echo "WARN: keymint did not register after 8 attempts - mount will likely fail"
 # keystore2's shared-secret handshake triggers the skeymast TA load - start it immediately so
 # the 43s TZ load begins ASAP (no fixed sleep).
 # Fresh-window baseline: count handshake markers ALREADY in the ring buffer, so the poll
@@ -343,6 +339,18 @@ while [ "$w" -lt 300 ]; do
     w=$((w + 1)); sleep 0.2
 done
 echo "keymint TA warm after ~$((w / 5))s (handshake $([ "$w" -lt 300 ] && echo seen || echo TIMEOUT))"
+# WIP123 DIAGNOSTIC: dump the full shared-secret / TA-init context to /tmp/km_handshake.log.
+# This is the ONE operation in TWRP that genuinely differs from a normal Android boot
+# (TEE-only computeSharedSecret - StrongBox was stripped from VINTF), so it is the prime
+# suspect for perturbing the state Samsung's FP TA validates (vendor=1004 after reboot).
+# Captured so we can compare it against a normal-boot handshake and PROVE or clear the theory.
+{
+    echo "===== km_handshake context (uptime $(cat /proc/uptime 2>/dev/null)) ====="
+    logcat -d -b all 2>/dev/null | grep -iE \
+        "computeSharedSecret|SharedSecret|shared secret|getSharedSecretParameters|km_add_tag|swd_begin|swd_compute|GK_swd|check_header|tz_check_oem|hw_auth|nonce|seed|Tl initialization|build type|keymint_swd" \
+        | grep -v "adbd service" | tail -120
+} > /tmp/km_handshake.log 2>&1
+echo "km-handshake: wrote /tmp/km_handshake.log ($(wc -l < /tmp/km_handshake.log 2>/dev/null) lines)"
 # TA-SPEED EXPERIMENT readout: build_type the trustlet parsed from the fingerprint this run.
 # The trustlet logs "build type : user" (with a space) during cold TA load at tz_app_init.
 # On a warm TA (already loaded earlier this boot) no new line appears -> the grep finds nothing
