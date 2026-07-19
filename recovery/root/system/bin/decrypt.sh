@@ -455,6 +455,31 @@ while [ "$mt" -lt 5 ]; do
 done
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "SUCCESS: /data mounted (~$((m * 100))ms)"; grep -E " /data " /proc/mounts
+
+    # BIOMETRIC-SAFETY (WIP121): protect persistent.sqlite from A16 keystore2 super-encryption.
+    # ROOT CAUSE (proven live 2026-07-19): after /data mounts, our running A16 keystore2 detects
+    # the new filesystem and opens /data/misc/keystore/persistent.sqlite RW, re-super-encrypting
+    # every stored key with the A16 KeyMint shared secret (~195ms window). Android's A12 keystore2
+    # on next boot finds keys wrapped by a foreign secret -> fingerprint/face HAL error=8 vendor=1004
+    # "biometric data damaged". The fix: immediately bind-mount a ramdisk copy over the DB path so
+    # keystore2 writes to tmpfs instead of disk; unmount after keystore2 is stopped -> real DB intact.
+    # Race note: this runs in the first shell statements after mount detection; keystore2's async DB
+    # open is triggered by vold's storage-available notification, giving us a ~tens-of-ms head start.
+    KS2_DB=/data/misc/keystore/persistent.sqlite
+    KS2_SNAP=/tmp/.ks2_snap.db
+    rm -f "$KS2_SNAP" 2>/dev/null
+    if [ -f "$KS2_DB" ]; then
+        if cp -a "$KS2_DB" "$KS2_SNAP" 2>/dev/null; then
+            if mount --bind "$KS2_SNAP" "$KS2_DB" 2>/dev/null; then
+                echo "ks2-db-protected: bind-mount active ($KS2_SNAP over $KS2_DB) - real DB shielded from A16 keystore2"
+            else
+                echo "ks2-db-protect: WARN bind-mount failed - DB unprotected (biometrics may need re-enroll)"
+                rm -f "$KS2_SNAP" 2>/dev/null
+            fi
+        else
+            echo "ks2-db-protect: WARN cp failed - DB unprotected"
+        fi
+    fi
     # WIP63: tell TWRP (crypto now compiled in) that /data is ALREADY decrypted on the dm device.
     # On its next Setup_Data_Partition scan TWRP reads ro.crypto.fs_crypto_blkdev and sets
     # Decrypted_Block_Device = this dm -> TW_IS_ENCRYPTED=0 (no "Decrypt Data" button) and
@@ -537,6 +562,21 @@ fi
 if [ "$(getprop init.svc.decrypt-keystore2)" = "running" ]; then
     setprop ctl.stop decrypt-keystore2
     echo "keystore2 stopped (frees /data for GUI unmount; TA already warm, de_keyinstall reaches KeyMint directly)"
+fi
+# BIOMETRIC-SAFETY (WIP121): remove the bind-mount now that keystore2 is dead.
+# The real /data/misc/keystore/persistent.sqlite (on disk) was shielded the entire time;
+# keystore2 wrote only to the tmpfs copy. Unmounting exposes the pristine on-disk file again.
+if [ -f "$KS2_SNAP" ]; then
+    umount "$KS2_DB" 2>/dev/null
+    # Verify the on-disk file is still the original (sanity check)
+    real_md5=$(md5sum "$KS2_DB" 2>/dev/null | cut -d' ' -f1)
+    snap_md5=$(md5sum "$KS2_SNAP" 2>/dev/null | cut -d' ' -f1)
+    if [ "$real_md5" = "$snap_md5" ]; then
+        echo "ks2-db-restored: on-disk DB matches snapshot ($real_md5) - bind-mount was effective"
+    else
+        echo "ks2-db-restored: on-disk=$real_md5 snap=$snap_md5 - DB may have been written before bind-mount"
+    fi
+    rm -f "$KS2_SNAP" 2>/dev/null
 fi
 
 # CRITICAL boot-safety - ALWAYS restore the pristine metadata key before exit, whether or
