@@ -348,6 +348,12 @@ echo "keymint TA warm after ~$((w / 5))s (handshake $([ "$w" -lt 300 ] && echo s
 # On a warm TA (already loaded earlier this boot) no new line appears -> the grep finds nothing
 # -> empty output (which is diagnostic, not an error: it means the TA is reused, not cold).
 echo "ta build_type seen by trustlet: $(logcat -d -b all 2>/dev/null | grep -oE "build type : [a-z]+" | tail -1 | sed 's/build type : //')"
+
+# NOTE: keystore2 MUST stay running through the mount below - vold.mountFstab unwraps the
+# metadata-encryption key via keystore2 (KeyStorage::decryptWithKeymasterKey routes through
+# keystore2, not KeyMint directly). Stopping it here wedges the probe/real mountFstab forever.
+# The biometric-safety snapshot/restore of the keystore DB is done around the mount instead
+# (see below), NOT by stopping keystore2 early.
 start_svc decrypt-vold
 wait_run decrypt-vold
 
@@ -429,10 +435,24 @@ fi
 #   cryptfs mountFstab <blkDevice> <mountPoint> <isZoned:bool> <userDevices>
 # (verified live: the 4-arg form -> "Raw commands are no longer supported").
 echo "[vdc cryptfs mountFstab - 6 args]"
-lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" 2>&1
-# mountFstab is synchronous (vdc blocks on vold), so /data is up the instant it returns -
-# poll instead of a fixed sleep 3 (exits in ~ms; bounded fallback for a slow cold mount).
-m=0; while [ "$m" -lt 30 ]; do grep -qE " /data " /proc/mounts 2>/dev/null && break; m=$((m + 1)); sleep 0.1; done
+# MOUNT RETRY (WIP120): mountFstab needs the KeyMint TA warm to unwrap the metadata key. On
+# the FIRST boot after flashing the TA cold-loads slowly and crashes+respawns several times
+# (seen: "keymint first-crash x11"), and our handshake poll can time out BEFORE the TA is
+# truly ready -> a single mountFstab fails -> /data never mounts (the intermittent "block
+# device didn't mount on first boot" bug). A warm TA on a later boot masks it. Fix: retry
+# mountFstab up to 5x with a settle delay; if the TA finishes warming during the wait a later
+# attempt succeeds. Each try is idempotent (vold no-ops if /data is already mounted).
+mt=0
+while [ "$mt" -lt 5 ]; do
+    grep -qE " /data " /proc/mounts 2>/dev/null && break
+    [ "$mt" -gt 0 ] && echo "[mountFstab retry $mt/4 - KeyMint TA may still be warming]"
+    lrun "$SYS/system/bin/vdc" cryptfs mountFstab "$USERDATA" /data false "" 2>&1
+    # mountFstab is synchronous (vdc blocks on vold), so /data is up the instant it returns -
+    # poll instead of a fixed sleep 3 (exits in ~ms; bounded fallback for a slow cold mount).
+    m=0; while [ "$m" -lt 30 ]; do grep -qE " /data " /proc/mounts 2>/dev/null && break; m=$((m + 1)); sleep 0.1; done
+    grep -qE " /data " /proc/mounts 2>/dev/null && break
+    mt=$((mt + 1)); [ "$mt" -lt 5 ] && sleep 3
+done
 if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "SUCCESS: /data mounted (~$((m * 100))ms)"; grep -E " /data " /proc/mounts
     # WIP63: tell TWRP (crypto now compiled in) that /data is ALREADY decrypted on the dm device.
