@@ -243,3 +243,20 @@ dontaudit kernel vfat:dir search;
 # app_data_file carries MLS categories; recovery is mlstrustedsubject so
 # the MCS constraint is satisfied and a plain allow is sufficient.
 allow recovery app_data_file:dir { getattr open search read };
+
+#############################################################################
+# WIP125 FIX 6: thermal-engine-v2 SELinux unlabeled fix
+# The stock thermal-engine-v2 binary (/vendor/bin/thermal-engine-v2) appears
+# as "unlabeled" in recovery context because the vendor_thermal-engine_exec
+# type is not defined in the Android-12 base SELinux policy (it's A16 vendor).
+# Since we run decrypt-thermal via init to start the engine, init tries to
+# execute/entrypoint the unlabeled file. Under permissive=1 it works, but
+# floods the log with denials. Grant execute+entrypoint on unlabeled for init
+# and recovery (init starts it, recovery context owns the init services).
+# This is safe: recovery is excluded from dangerous neverallows, and the
+# device is permissive (enforcement is disabled), so this merely silences
+# the audit spam without changing actual access control.
+#############################################################################
+allow init unlabeled:file { execute read open getattr execute_no_trans entrypoint };
+allow recovery unlabeled:file { execute read open getattr execute_no_trans entrypoint };
+dontaudit init unlabeled:file entrypoint;

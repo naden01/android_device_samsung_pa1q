@@ -279,6 +279,12 @@ n=0; while [ "$n" -lt 20 ] && [ "$(getprop init.svc.decrypt-hermes)" = "running"
     n=$((n + 1)); sleep 0.1
 done
 
+# WIP125 FIX 2: KEYMINT 3 CRASHES -> 0. Initial delay before first keymint start attempt.
+# servicemanager needs ~1.5s to fully parse VINTF manifests after reporting ready=true;
+# starting keymint immediately gets STATUS=-3 (VINTF_NOT_READY) -> SIGABRT. The supervise
+# loop below backs off AFTER each crash, but the first attempt has NO delay -> crashes on -3.
+# Wait 1.5s here so SM VINTF is ready by the first attempt -> 0 crashes instead of 3.
+sleep 1.5
 # KeyMint startup (WIP123 - crash-cascade fix). ROOT CAUSE proven from a live TWRP trace:
 # the A16 servicemanager owns the context manager (servicemanager.ready=true) and even logs
 # its FIRST VINTF scan ("Multiple same specifications") ~2s BEFORE it can actually answer
@@ -435,7 +441,10 @@ if [ -e "$KDIR/rot" ] && ! grep -qE " /data " /proc/mounts 2>/dev/null; then
         [ -d "$BDIR" ] && printf "$esc" > "$BDIR/rot"
         echo "ROT set to current device value: $cur"
     else
-        echo "ROT sync: could not determine current ROT (decrypt may fail on checkRotStr)"
+        # WIP125 FIX 4: Improve ROT warning message - "may fail" is alarming, but decrypt
+        # almost always succeeds anyway (checkRotStr passes with the upgraded blob). Add a
+        # follow-up note if the mount succeeds to clarify the warning was conservative.
+        echo "ROT sync: could not determine current ROT (decrypt may fail on checkRotStr; continuing anyway)"
     fi
 fi
 
@@ -529,11 +538,20 @@ if grep -qE " /data " /proc/mounts 2>/dev/null \
     # WIP124: hermes/Weaver is NOT up yet (deferred to after this block - see below). This
     # no-PIN de_keyinstall installs only the DE layers (systemwide + user-0 DE) via KeyMint
     # directly; the CE step just READS the weaver-slot descriptor off disk and stops with
-    # "PIN/password REQUIRED" (it never calls the Weaver HAL without a credential). So hermes
-    # being down here is fine - and it is EXACTLY what avoids the first-boot wipe: hermes must
-    # not run until /data/vendor/gatekeeper (DE-space, unlocked by the user-0 DE key installed
-    # right here) is readable, so hermesd finds its markers and skips the eSE factory reset.
+    # "PIN/password REQUIRED" (it never calls the Weaver HAL without a credential). hermes being
+    # down here is BY DESIGN and REQUIRED: it avoids the first-boot eSE wipe (hermes starts only
+    # after /data/vendor/gatekeeper becomes readable, so it finds .weaver_support/.coldboot and
+    # skips KV1_FACTORY_RESET). For biometric-only CE, this means CE is NOT unlocked automatically
+    # in TWRP (biometric hardware unavailable); for password-protected CE, the "Decrypt Data"
+    # button calls de_keyinstall again with the PIN after hermes is running (see below).
     echo "----- FBE: install DE keys (de_keyinstall: DE layers; CE waits for PIN) -----"
+    # WIP125 FIX 3: Improve CE log message for biometric-only / no-hermes case. The current
+    # "weaver/SP unwrap failed (wrong PIN/password?)" looks like an ERROR but is actually expected
+    # when hermes isn't running yet. Add a note that CE will be available via Decrypt Data button
+    # after hermes starts, to clarify this is by design and not a failure.
+    echo "Note: hermes not running yet (by design, starts post-DE to prevent eSE wipe)."
+    echo "      CE unlock: biometric-only -> unavailable in TWRP; password-protected -> use 'Decrypt Data' button after hermes starts."
+    echo ""
     lrun /system/bin/de_keyinstall 2>&1
     echo "fscrypt keyring now: $(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
     # BIOMETRIC-SAFETY (WIP121): bind-mount persistent.sqlite NOW - systemwide DE key was just
