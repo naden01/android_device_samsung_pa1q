@@ -34,6 +34,11 @@ PATCH_FBE_PIN_THEME="$DEVICE_PATH/patches/0008-fbe-restore-pin-theme.patch"
 PATCH_DECRYPT_HELPER="$DEVICE_PATH/patches/0009-decrypt-data-helper.patch"
 # WIP120: show "Decrypt Data" button only when .pwd is present in spblob (credential-protected CE)
 PATCH_DECRYPT_BUTTON="$DEVICE_PATH/patches/0010-decrypt-data-button.patch"
+# WIP126: fbe_backup_pin_check + fbe_pin_validate: instant PIN validation before backup/restore
+# (skip if CE already unlocked via /tmp/.ce_sp); adds fbe_backup_pin page + error feedback
+PATCH_FBE_PIN_VALIDATE="$DEVICE_PATH/patches/0011-fbe-pin-validate.patch"
+# WIP126: exclude /data/system/frp_secret from backups (causes FRP lock on restore)
+PATCH_FRP_EXCLUDE="$DEVICE_PATH/patches/0012-frp-exclude.patch"
 
 apply_patch() {
     local patch="$1"
@@ -97,6 +102,8 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_FBE_PIN_THEME" "$TWRP_ROOT/gui/theme/common/portrait.xml" "fbe_restore_pin"
     apply_patch "$PATCH_DECRYPT_HELPER" "$TWRP_ROOT/gui/action.cpp" "WIP119:decrypt-data-helper"
     apply_patch "$PATCH_DECRYPT_BUTTON" "$TWRP_ROOT/gui/action.cpp" "check_lockscreen_cred"
+    apply_patch "$PATCH_FBE_PIN_VALIDATE" "$TWRP_ROOT/gui/action.cpp" "fbe_backup_pin_check"
+    apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
