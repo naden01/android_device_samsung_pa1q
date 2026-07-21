@@ -49,6 +49,8 @@ for patch in "$_SELF"/*.patch; do
         0008-fbe-restore-pin-theme.patch) marker="fbe_restore_pin:gui/theme/common/portrait.xml" ;;
         0009-decrypt-data-helper.patch)   marker="WIP119:decrypt-data-helper:gui/action.cpp" ;;
         0010-decrypt-data-button.patch)  marker="check_lockscreen_cred:gui/action.cpp" ;;
+        0011-fbe-pin-validate.patch)     marker="fbe_backup_pin_check:gui/action.cpp" ;;
+        0012-frp-exclude.patch)          marker="frp_secret:partition.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then
