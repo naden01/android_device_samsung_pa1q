@@ -30,6 +30,8 @@ REC="$TOP/bootable/recovery"
 #   0008-fbe-restore-pin-theme.patch    -> gui/theme/common/portrait.xml
 #   0009-decrypt-data-helper.patch      -> gui/action.cpp
 #   0010-decrypt-data-button.patch      -> gui/action.cpp, gui/objects.hpp, gui/theme/common/portrait.xml
+#   0011-fbe-pin-validate.patch         -> gui/action.cpp, gui/objects.hpp, gui/theme/common/portrait.xml
+#   0012-frp-exclude.patch              -> partition.cpp
 FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml"
 
 if [ ! -d "$REC" ]; then
