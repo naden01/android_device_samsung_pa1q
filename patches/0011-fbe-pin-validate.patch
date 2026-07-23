@@ -1,6 +1,6 @@
 diff -Naur base/gui/action.cpp modified/gui/action.cpp
 --- base/gui/action.cpp	2026-07-23 23:15:25.014009485 +0300
-+++ modified/gui/action.cpp	2026-07-23 23:16:37.978004927 +0300
++++ modified/gui/action.cpp	2026-07-23 23:43:25.953867559 +0300
 @@ -213,6 +213,9 @@
  		// WIP112: runs in the CALLER thread (cheap tar-header scan) so it can gui_changePage
  		// straight to restore_run/fbe_restore_pin without colliding with the nandroid thread.
@@ -11,7 +11,7 @@ diff -Naur base/gui/action.cpp modified/gui/action.cpp
  		ADD_ACTION(check_lockscreen_cred);
  
  		// remember actions that run in the caller thread
-@@ -1735,12 +1738,137 @@
+@@ -1735,12 +1738,138 @@
  	if (need_pin) {
  		DataManager::SetValue("tw_fbe_need_pin", 1);
  		DataManager::SetValue("tw_password_fail", 0);
@@ -143,6 +143,7 @@ diff -Naur base/gui/action.cpp modified/gui/action.cpp
 +		LOGINFO("WIP126: fbe_pin_validate: WRONG PIN (rc=%d) -> stay\n", rc);
 +		if (!pin.empty()) pin.assign(pin.size(), '*');
 +		DataManager::SetValue("tw_fbe_pin", "");
++		DataManager::SetValue("tw_fbe_pin_display", ""); // WIP129: reset cursor field
 +	}
 +	return 0;
 +}
@@ -164,16 +165,7 @@ diff -Naur base/gui/objects.hpp modified/gui/objects.hpp
  
 diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait.xml
 --- base/gui/theme/common/portrait.xml	2026-07-23 23:15:25.014009485 +0300
-+++ modified/gui/theme/common/portrait.xml	2026-07-23 23:16:37.978004927 +0300
-@@ -181,7 +181,7 @@
- 					<action function="page">clear_vars</action>
- 				</actions>
- 			</action>
--		</page>
-+		PAGEEND
- 
- 		<page name="main2">
- 			<template name="page"/>
++++ modified/gui/theme/common/portrait.xml	2026-07-23 23:37:38.649896327 +0300
 @@ -216,13 +216,15 @@
  			<button style="main_button">
  				<placement x="%indent%" y="%row8_y%"/>
@@ -192,15 +184,6 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
  			</button>
  
  			<button style="main_button">
-@@ -4952,7 +4954,7 @@
- 			<template name="keyboardtemplate"/>
- 		</page>
- 
--		<page name="fbe_restore_pin">
-+		PAGESTART
- 			<template name="page"/>
- 
- 			<text style="text_l">
 @@ -4975,7 +4977,7 @@
  				<text>%tw_fbe_pin_display%</text>
  				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
