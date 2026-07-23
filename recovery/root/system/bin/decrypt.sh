@@ -259,17 +259,16 @@ n=0; while [ "$n" -lt 48 ]; do
 done
 [ "$n" -ge 48 ] && echo "qseecomd: poll TIMEOUT (proceeding anyway)"
 
-# WIP124: Weaver (hermes) start is DEFERRED to AFTER de_keyinstall (see the dedicated block
-# further down), NOT started here. ROOT CAUSE proven live (dmesg + logcat): hermesd decides
-# "first boot" by checking the markers /data/vendor/gatekeeper/.weaver_support and .coldboot.
+# WIP127: Weaver (hermes) start is deferred to post-mount (see the dedicated block after vdc
+# mountFstab succeeds), NOT started here. ROOT CAUSE proven live (dmesg + logcat): hermesd
+# decides "first boot" by checking markers /data/vendor/gatekeeper/.weaver_support/.coldboot.
 # Started this early - before /data is mounted - those markers are unreachable, so hermesd
-# concludes /data is factory-fresh while the eSE Weaver is still provisioned, and "resolves"
-# that mismatch with HV_TZ_CMD_KV1_FACTORY_RESET: it WIPES the Weaver slot in the eSE. That
-# severs the PIN -> synthetic-password -> biometric chain, so the next Android boot rejects the
-# fingerprint/face with vendor=1004 (irreversible; on-disk files stay byte-identical because the
+# concludes /data is factory-fresh while eSE Weaver is still provisioned, and "resolves" that
+# mismatch with HV_TZ_CMD_KV1_FACTORY_RESET: it WIPES the Weaver slot. That severs the
+# PIN->biometric chain (vendor=1004 after reboot; irreversible - on-disk files stay identical,
 # loss is in eSE hardware, not on /data). The old tmpfs arg (/tmp/hermes_gk) did NOT avoid it -
 # the marker path is hardcoded to /data/vendor/gatekeeper. So we only pre-create dirs and kill a
-# stale instance here; the real start is after the systemwide DE key is in and the markers read.
+# stale instance here; the real start is post-mount but pre-DE-install (IWeaver needed for CE).
 mkdir -p /tmp/hermes_gk /mnt/vendor/efs/hermes 2>/dev/null
 # WIP65: kill any stale hermesd (a prior run's instance holds /dev/k250a + the hermes_secnvm
 # socket; a new one would come up degraded). ctl.stop leaves it stopped (init won't auto-respawn
@@ -535,23 +534,25 @@ fi
 if grep -qE " /data " /proc/mounts 2>/dev/null \
    && [ -e /data/unencrypted/key/keymaster_key_blob ] \
    && [ -x /system/bin/de_keyinstall ]; then
-    # WIP124: hermes/Weaver is NOT up yet (deferred to after this block - see below). This
-    # no-PIN de_keyinstall installs only the DE layers (systemwide + user-0 DE) via KeyMint
-    # directly; the CE step just READS the weaver-slot descriptor off disk and stops with
-    # "PIN/password REQUIRED" (it never calls the Weaver HAL without a credential). hermes being
-    # down here is BY DESIGN and REQUIRED: it avoids the first-boot eSE wipe (hermes starts only
-    # after /data/vendor/gatekeeper becomes readable, so it finds .weaver_support/.coldboot and
-    # skips KV1_FACTORY_RESET). For biometric-only CE, this means CE is NOT unlocked automatically
-    # in TWRP (biometric hardware unavailable); for password-protected CE, the "Decrypt Data"
-    # button calls de_keyinstall again with the PIN after hermes is running (see below).
-    echo "----- FBE: install DE keys (de_keyinstall: DE layers; CE waits for PIN) -----"
-    # WIP125 FIX 3: Improve CE log message for biometric-only / no-hermes case. The current
-    # "weaver/SP unwrap failed (wrong PIN/password?)" looks like an ERROR but is actually expected
-    # when hermes isn't running yet. Add a note that CE will be available via Decrypt Data button
-    # after hermes starts, to clarify this is by design and not a failure.
-    echo "Note: hermes not running yet (by design, starts post-DE to prevent eSE wipe)."
-    echo "      CE unlock: biometric-only -> unavailable in TWRP; password-protected -> use 'Decrypt Data' button after hermes starts."
-    echo ""
+    # WIP127 FIX: Start hermes/Weaver NOW - AFTER /data is mounted (so /data/vendor/gatekeeper
+    # markers are readable to prevent eSE wipe), but BEFORE de_keyinstall (which needs IWeaver
+    # even for empty-LSKF CE unlock). The WIP124 design deferred hermes to post-DE-install, but
+    # that broke empty-LSKF because de_keyinstall ALWAYS calls readWeaverSlot (the "it never
+    # calls Weaver HAL without credential" comment was wrong). Starting hermes here is safe:
+    # /data/vendor/gatekeeper is metadata-encrypted (dm-default-key layer, no FBE), so readable
+    # immediately after vdc mountFstab succeeds. hermesd finds .weaver_support/.coldboot and
+    # skips KV1_FACTORY_RESET, preserving biometrics. Gate on marker readability - if missing,
+    # skip hermes (CE unavailable this session, but no eSE wipe risk).
+    if [ -e /data/vendor/gatekeeper/.weaver_support ]; then
+        start_svc decrypt-hermes
+        echo "hermes/Weaver started (post-mount, pre-DE; gatekeeper markers present -> no eSE wipe)"
+    elif [ -d /data/vendor/gatekeeper ]; then
+        start_svc decrypt-hermes
+        echo "hermes/Weaver started (WARN: .weaver_support absent but dir exists)"
+    else
+        echo "hermes/Weaver SKIPPED - gatekeeper markers unreadable (CE unlock unavailable)"
+    fi
+    echo "----- FBE: install DE+CE keys (de_keyinstall with IWeaver up) -----"
     lrun /system/bin/de_keyinstall 2>&1
     echo "fscrypt keyring now: $(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
     # BIOMETRIC-SAFETY (WIP121): bind-mount persistent.sqlite NOW - systemwide DE key was just
@@ -577,28 +578,7 @@ else
     echo "FBE DE-key install skipped (no /data, no key material, or binary missing)"
 fi
 
-# WIP124: NOW start Weaver (hermes) - AFTER de_keyinstall put the user-0 DE key in, so
-# /data/vendor/gatekeeper is readable. hermesd reads its markers (.weaver_support/.coldboot)
-# there, sees "not first boot", and does NOT issue HV_TZ_CMD_KV1_FACTORY_RESET - the eSE Weaver
-# slot (and thus the PIN->biometric chain) stays intact. This is the biometric-preservation fix:
-# starting hermes before this point wiped Weaver on every TWRP trip -> post-reboot vendor=1004.
-# hermes is needed for the CE unlock path (`password` -> de_keyinstall <PIN> -> IWeaver) and the
-# remount watcher; both run later, so deferring the start to here loses nothing. GATE on the
-# marker path actually being readable - if it is NOT (truly factory-fresh /data, or DE not in),
-# we SKIP hermes rather than risk the wipe; CE unlock then simply won't be available until a
-# clean boot, which is strictly safer than destroying enrolled biometrics.
-if grep -qE " /data " /proc/mounts 2>/dev/null && [ -e /data/vendor/gatekeeper/.weaver_support ]; then
-    start_svc decrypt-hermes
-    echo "hermes/Weaver started (post-DE; gatekeeper markers present -> no eSE wipe)"
-elif grep -qE " /data " /proc/mounts 2>/dev/null && [ -d /data/vendor/gatekeeper ]; then
-    # dir exists but marker missing - ambiguous. Start hermes (Weaver needed) but WARN loudly;
-    # a genuinely provisioned device always has .weaver_support here.
-    start_svc decrypt-hermes
-    echo "hermes/Weaver started (post-DE; WARN .weaver_support absent but gatekeeper dir exists)"
-else
-    echo "hermes/Weaver SKIPPED - /data/vendor/gatekeeper unreadable; refusing to risk eSE wipe (CE unlock unavailable this session)"
-fi
-
+# WIP127: hermes was already started above (post-mount, pre-DE) so IWeaver is up.
 # FREE /data for the TWRP GUI "Unmount" checkbox. keystore2's only job here was the
 # initial shared-secret handshake that WARMS the KeyMint skeymast TA; that is done by now
 # and the TA stays warm TZ-side for the rest of the session. But the A16 keystore2 keeps
