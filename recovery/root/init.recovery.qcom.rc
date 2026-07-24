@@ -198,6 +198,13 @@ on property:twrp.decrypt.run=1
     mkdir /data/vendor/keymaster 0775 system system
     start decrypt
 
+# WIP131: vendor teardown trigger. TWRP's partition.cpp hooks (Unmount /vendor, Flash
+# vendor image) set this prop; decrypt.sh sees it at the top, tears down the stack that
+# holds /vendor (daemons + nested mounts + dm), writes /tmp/.vendor_freed, and exits 0
+# WITHOUT running the decrypt flow. Restore decryption afterwards: setprop twrp.decrypt.run 1
+on property:twrp.decrypt.vendor_teardown=1
+    start decrypt
+
 # Oneshot orchestrator: mount dump -> VINTF overlay -> stop A12 sm/keystore2 ->
 # start the A16 stack below -> drive the metadata decrypt via the matched A16 vdc.
 service decrypt /system/bin/decrypt.sh
