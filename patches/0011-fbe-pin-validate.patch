@@ -9,7 +9,7 @@ diff -Naur base/gui/action.cpp modified/gui/action.cpp
 +		ADD_ACTION(fbe_backup_pin_check);
 +		ADD_ACTION(fbe_pin_validate);
  		ADD_ACTION(check_lockscreen_cred);
- 
+
  		// remember actions that run in the caller thread
 @@ -1735,12 +1738,138 @@
  	if (need_pin) {
@@ -147,7 +147,7 @@ diff -Naur base/gui/action.cpp modified/gui/action.cpp
 +	}
 +	return 0;
 +}
- 
+
  int GUIAction::repair(std::string arg __unused)
  {
 diff -Naur base/gui/objects.hpp modified/gui/objects.hpp
@@ -162,7 +162,7 @@ diff -Naur base/gui/objects.hpp modified/gui/objects.hpp
 +	int fbe_pin_validate(std::string arg);     // WIP126: instant PIN validation
  	int check_lockscreen_cred(std::string arg); // .pwd-based button visibility
  	int removedynamicgroups(std:: string arg);
- 
+
 diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait.xml
 --- base/gui/theme/common/portrait.xml	2026-07-23 23:15:25.014009485 +0300
 +++ modified/gui/theme/common/portrait.xml	2026-07-23 23:37:38.649896327 +0300
@@ -175,14 +175,14 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
 +					<action function="fbe_backup_pin_check"></action>
 +				</actions>
  			</button>
- 
+
  			<button style="main_button">
  				<placement x="%center_x%" y="%row8_y%"/>
  				<text>{@restore_btn=Restore}</text>
 -				<action function="page">restore</action>
 +				<action function="fbe_restore_pin_check"></action>
  			</button>
- 
+
  			<button style="main_button">
 @@ -4975,7 +4977,7 @@
  				<text>%tw_fbe_pin_display%</text>
@@ -191,12 +191,12 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
 -				<action function="page">restore_run</action>
 +				<action function="fbe_pin_validate"></action>
  			</input>
- 
+
  			<fill color="%accent_color%">
-@@ -4987,6 +4989,12 @@
+@@ -4987,12 +4989,18 @@
  				<text>Type the PIN/password used on the backed-up device, then press Enter (or Start).</text>
  			</text>
- 
+
 +			<text style="text_m_fail">
 +				<conditions><condition var1="tw_password_fail" var2="1"/></conditions>
 +				<placement x="%center_x%" y="%row6_y%" placement="5"/>
@@ -206,7 +206,10 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
  			<button style="main_button_half_height">
  				<placement x="%indent%" y="%row10_y%"/>
  				<text>Cancel</text>
-@@ -4996,7 +5004,63 @@
+-				<action function="page">restore_select</action>
++				<action function="page">main</action>
+ 			</button>
+
  			<button style="main_button_half_height">
  				<placement x="%center_x%" y="%row10_y%"/>
  				<text>Start</text>
@@ -269,5 +272,5 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
 +				<text>Start</text>
 +				<action function="fbe_pin_validate"></action>
  			</button>
- 
+
  			<template name="keyboardtemplate"/>
