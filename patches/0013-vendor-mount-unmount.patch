@@ -1,40 +1,35 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: pa1q device tree <noreply@local>
-Date: Thu, 24 Jul 2026 20:00:00 +0300
+Date: Thu, 24 Jul 2026 21:00:00 +0300
 Subject: [PATCH] twrp: vendor unmount/flash teardown for decrypt stack
 
-PROBLEM
-  /vendor cannot be unmounted or flashed while the decrypt stack holds it
-  (5 daemons mmap /vendor/lib64 + 2 nested mounts). See decrypt.sh WIP131 block.
-
-FIX (additive; auto-applied at build via vendorsetup, auto-revertable via git checkout)
-  Two hooks in partition.cpp:
-  - UnMount(): on an EXPLICIT user unmount of /vendor (Display_Error==true, GUI
-    button ONLY - automatic startup/backup/restore unmounts pass false and are
-    skipped so they do NOT tear down the decrypt stack and hang TWRP), trigger
-    decrypt.sh teardown via setprop, wait for /tmp/.vendor_freed, retry unmount.
-  - Flash_Image(): before flashing a vendor image, run the same teardown so the
-    raw super region is free (dm-linear mapper/vendor_a released).
-  Restore decryption afterwards: setprop twrp.decrypt.run 1 (or reboot recovery).
-
-  Files (for revert): bootable/recovery/partition.cpp
-                      device tree: recovery/root/system/bin/decrypt.sh + .rc trigger
+Two hooks in partition.cpp trigger decrypt.sh's vendor-teardown mode:
+ - UnMount(): a user-initiated (Display_Error) unmount of /vendor that is
+   still held by the decrypt daemons runs the teardown then retries.
+ - Flash_Image(): frees /vendor before writing a vendor image.
+Both poll /tmp/.vendor_freed for up to 30s (stopping 8 daemons + unmounts
+can exceed 10s; a short wait made the first tap fail with EBUSY). gui_print
+avoids the missing-string-resource error line. Gated on Display_Error so the
+automatic UnMount_Main_Partitions() at boot never triggers teardown.
 ---
 --- a/partition.cpp
 +++ b/partition.cpp
-@@ -1749,6 +1749,20 @@
+@@ -1749,6 +1749,23 @@
  			umount2(Symlink_Mount_Point.c_str(), flags);
  
  		umount2(Mount_Point.c_str(), flags);
-+		// WIP131: only on an EXPLICIT user unmount (Display_Error==true, i.e. the GUI
-+		// button). Automatic unmounts at startup/backup/restore pass false and must NOT
-+		// trigger the teardown (it tears down the decrypt stack -> TWRP hangs on the logo).
++		// WIP134: user-initiated (Display_Error) unmount of /vendor held by the decrypt
++		// stack -> trigger decrypt.sh teardown (stops daemons + drops nested mounts + dm),
++		// then retry. 30s timeout: stopping 8 daemons + 3 unmounts can exceed 10s and the
++		// GUI busy-waits here, so a short timeout made the first tap fail (EBUSY) - it only
++		// worked on the 2nd tap once the background teardown had finished. gui_print (not
++		// gui_msg) avoids the missing-string-resource error line.
 +		if (Is_Mounted() && Display_Error && Mount_Point == "/vendor" && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
-+			gui_msg("vendor_teardown=Vendor held by decrypt - releasing...");
++			gui_print("Vendor held by decrypt - releasing...\n");
 +			unlink("/tmp/.vendor_freed");
 +			TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
 +			int vt_wait = 0;
-+			while (vt_wait < 100 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
++			while (vt_wait < 300 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
 +				usleep(100000);
 +				vt_wait++;
 +			}
@@ -43,23 +38,23 @@ FIX (additive; auto-applied at build via vendorsetup, auto-revertable via git ch
  		if (Is_Mounted()) {
  			if (Display_Error)
  				gui_msg(Msg(msg::kError, "fail_unmount=Failed to unmount '{1}' ({2})")(Mount_Point)(strerror(errno)));
-@@ -3303,6 +3317,19 @@
+@@ -3303,6 +3320,19 @@
  
  	LOGINFO("Image filename is: %s\n", Backup_FileName.c_str());
  
-+	// WIP131: free /vendor from the decrypt stack before flashing a vendor image,
-+	// else the raw super region is busy (dm-linear mapper/vendor_a still mounted).
++	// WIP134: free /vendor from the decrypt stack before flashing a vendor image, else
++	// the raw super region is busy (dm-linear mapper/vendor_a still mounted + daemons hold
++	// it). Same 30s timeout as the UnMount hook so the teardown finishes before we write.
 +	if ((Mount_Point == "/vendor" || Mount_Point == "/vendor_image") && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
-+		gui_msg("vendor_teardown_flash=Releasing vendor for flashing...");
++		gui_print("Releasing vendor for flashing...\n");
 +		unlink("/tmp/.vendor_freed");
 +		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
 +		int vt_wait = 0;
-+		while (vt_wait < 100 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
++		while (vt_wait < 300 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
 +			usleep(100000);
 +			vt_wait++;
 +		}
 +	}
-+
  	if (Backup_Method == BM_FILES) {
  		LOGERR("Cannot flash images to file systems\n");
  		return false;

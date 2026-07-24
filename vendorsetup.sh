@@ -108,7 +108,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_DECRYPT_BUTTON" "$TWRP_ROOT/gui/action.cpp" "check_lockscreen_cred"
     apply_patch "$PATCH_FBE_PIN_VALIDATE" "$TWRP_ROOT/gui/action.cpp" "fbe_backup_pin_check"
     apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
-    apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP131"
+    apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP134"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
