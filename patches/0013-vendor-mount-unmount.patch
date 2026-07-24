@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: pa1q device tree <noreply@local>
+Date: Wed, 24 Jul 2026 19:00:00 +0300
+Subject: [PATCH] twrp: vendor unmount/flash teardown for decrypt stack
+
+PROBLEM
+  /vendor cannot be unmounted or flashed while TWRP is running. The decrypt.sh
+  orchestrator mounts /vendor (erofs from mapper/vendor_a) and holds it via:
+  - 5 running daemons (qseecomd, keymint, hermes, thermal, bootctl) that mmap
+    .so libraries from /vendor/lib64, keeping open file handles
+  - 2 nested bind mounts on top (/vendor/etc/vintf tmpfs overlay for VINTF
+    manifest surgery, /vendor/firmware_mnt vfat for the modem TA image)
+  
+  Attempts to unmount /vendor from the Mount page fail with EBUSY. Attempts to
+  flash a vendor.img fail with "block device busy" because the dm-linear device
+  mapper/vendor_a is still active and mounted while the raw super partition
+  underneath is being written.
+
+FIX (additive; two hooks in partition.cpp + teardown mode in decrypt.sh)
+  1. UnMount() hook: when unmounting /vendor fails (Is_Mounted() after umount2)
+     AND the decrypt stack is active (/vendor/bin/qseecomd exists), trigger the
+     teardown sequence (setprop twrp.decrypt.vendor_teardown 1), wait for the
+     completion marker (/tmp/.vendor_freed), then retry umount2. If it succeeds
+     this time, return true; otherwise fall through to the existing error path.
+     
+  2. Flash_Image() hook: when flashing /vendor or /vendor_image AND the decrypt
+     stack is active, trigger teardown BEFORE any write operations begin. This
+     frees the dm device and underlying block so the raw image write succeeds.
+     
+  3. decrypt.sh teardown mode (device tree, not in this patch): new property
+     check at script entry. If twrp.decrypt.vendor_teardown=1, stop all decrypt
+     daemons (thermal, watcher, hermes, keymint, bootctl, qseecomd, vold,
+     keystore2) in reverse dependency order, unmount the nested mounts
+     (/vendor/etc/vintf, /vendor/firmware_mnt), unmount /vendor, delete the
+     dm vendor_a device (dmctl delete), write the completion marker
+     /tmp/.vendor_freed, and exit. The vendor partition is now free for
+     unmount/remount/flash by the user.
+     
+  Recovery: the user runs "setprop twrp.decrypt.run 1" (the existing decrypt
+  trigger) to remount /vendor and restart the daemon stack. decrypt.sh is
+  idempotent on the vendor mount (checks "if [ ! -e /vendor/bin/qseecomd ]")
+  and hermes restarts via the two-pass protocol (WIP128 marker files) so the
+  eSE Weaver slot is not touched and biometric unlock remains functional.
+
+  Files (for revert): bootable/recovery/partition.cpp
+                      device tree: recovery/root/system/bin/decrypt.sh
+---
+diff --git a/partition.cpp b/partition.cpp
+--- a/partition.cpp	2026-07-24 19:06:13.919852227 +0300
++++ b/partition.cpp	2026-07-24 19:20:42.291715906 +0300
+@@ -1750,6 +1750,22 @@
+ 
+ 		umount2(Mount_Point.c_str(), flags);
+ 		if (Is_Mounted()) {
++		// WIP131: vendor teardown if busy and held by decrypt daemons
++		if (Mount_Point == "/vendor" && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
++			gui_msg("vendor_teardown=Vendor held by decrypt - releasing...");
++			unlink("/tmp/.vendor_freed");  // clear stale marker before triggering
++			TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
++			// Wait for teardown completion marker
++			int wait = 0;
++			while (wait < 100 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
++				usleep(100000);  // 0.1s
++				wait++;
++			}
++			// Retry unmount after teardown
++			umount2(Mount_Point.c_str(), flags);
++		}
++		// Check again after potential vendor teardown
++		if (Is_Mounted()) {
+ 			if (Display_Error)
+ 				gui_msg(Msg(msg::kError, "fail_unmount=Failed to unmount '{1}' ({2})")(Mount_Point)(strerror(errno)));
+ 			else
+@@ -3303,6 +3319,22 @@
+ 
+ 	LOGINFO("Image filename is: %s\n", Backup_FileName.c_str());
+ 
++	// WIP131: vendor teardown before flashing - free the block device
++	if ((Mount_Point == "/vendor" || Mount_Point == "/vendor_image") 
++	    && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
++		gui_msg("vendor_teardown_flash=Releasing vendor for flashing...");
++		unlink("/tmp/.vendor_freed");  // clear stale marker before triggering
++		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
++		// Wait for teardown completion
++		int wait = 0;
++		while (wait < 100 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
++			usleep(100000);  // 0.1s
++			wait++;
++		}
++		LOGINFO("Vendor teardown completed (wait=%d)
++", wait);
++	}
++
+ 	if (Backup_Method == BM_FILES) {
+ 		LOGERR("Cannot flash images to file systems\n");
+ 		return false;
