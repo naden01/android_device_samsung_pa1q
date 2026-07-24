@@ -14,6 +14,52 @@
 LOG=/tmp/decrypt.log
 exec >>"$LOG" 2>&1
 echo "===== decrypt start (uptime $(cat /proc/uptime 2>/dev/null)) ====="
+
+# WIP131: VENDOR TEARDOWN MODE. Triggered by the TWRP partition.cpp hooks (Unmount /vendor
+# from the Mount page, or Flash a vendor image) via `setprop twrp.decrypt.vendor_teardown 1`
+# -> .rc `on property:twrp.decrypt.vendor_teardown=1` -> `start decrypt` (this script). It
+# frees /vendor so the user can unmount / flash a custom vendor image. This DELIBERATELY
+# tears down the decrypt stack: /vendor is erofs from mapper/vendor_a, held by 5 daemons
+# that mmap /vendor/lib64 .so files + 2 nested mounts (the vintf tmpfs overlay and the
+# apnhlos firmware_mnt vfat). To restore decryption afterwards the user runs
+# `setprop twrp.decrypt.run 1` (or reboots recovery) - the normal flow below re-mounts
+# /vendor and brings the stack back up (idempotent, two-pass hermes so the eSE is safe).
+# We exit 0 right after so NONE of the decrypt flow runs in teardown mode.
+if [ "$(getprop twrp.decrypt.vendor_teardown)" = "1" ]; then
+    setprop twrp.decrypt.vendor_teardown 0      # clear immediately so a later decrypt run is normal
+    rm -f /tmp/.vendor_freed 2>/dev/null        # clear any stale marker before we start
+    echo "----- WIP131 vendor teardown: releasing /vendor for unmount/flash -----"
+    # 1. Stop every daemon that holds /vendor (open .so handles). Order: dependents first.
+    #    Wait (bounded) for each to actually reach "stopped" so its fds are released before
+    #    we try to unmount. keystore2 may already be stopped from the initial decrypt.
+    for svc in decrypt-thermal decrypt-watcher decrypt-hermes decrypt-keymint \
+               decrypt-bootctl decrypt-qseecomd decrypt-vold decrypt-keystore2; do
+        [ "$(getprop init.svc.$svc)" = "running" ] && setprop ctl.stop "$svc"
+        n=0; while [ "$n" -lt 30 ] && [ "$(getprop init.svc.$svc)" = "running" ]; do
+            n=$((n + 1)); sleep 0.1
+        done
+        echo "  $svc -> $(getprop init.svc.$svc)"
+    done
+    # 2. Drop the two nested mounts ON TOP of /vendor first (else /vendor stays busy).
+    umount /vendor/etc/vintf 2>/dev/null    && echo "  umount /vendor/etc/vintf ok"
+    umount /vendor/firmware_mnt 2>/dev/null && echo "  umount /vendor/firmware_mnt ok"
+    # 3. Now /vendor itself. Lazy fallback (MNT_DETACH) if a straggler fd lingers.
+    if umount /vendor 2>/dev/null; then
+        echo "  umount /vendor ok"
+    else
+        umount -l /vendor 2>/dev/null && echo "  umount -l /vendor (lazy) ok"
+    fi
+    # 4. Delete the dm-linear device so the underlying super region is free for a raw flash.
+    #    Best-effort: absent/held dm is not fatal (a plain unmount does not need this).
+    for dm in vendor_a vendor_b vendor; do
+        dmctl delete "$dm" 2>/dev/null && echo "  dmctl delete $dm ok" && break
+    done
+    # 5. Marker the C++ hook polls for (rm'd above so it only appears when we are truly done).
+    touch /tmp/.vendor_freed
+    echo "----- WIP131 vendor teardown done: /vendor freed (restore via 'setprop twrp.decrypt.run 1') -----"
+    exit 0
+fi
+
 # WIP65: wipe the log buffers up front. The handshake warm-up poll below is already
 # stale-proof via its hs_base count-delta, but the OTHER readiness greps (qseecomd
 # "QSEECOM DAEMON RUNNING", keymint "adding", and the ROT "checkRotStr" parse) are plain

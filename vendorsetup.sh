@@ -31,6 +31,10 @@ PATCH_DECRYPT_BUTTON="$DEVICE_PATH/patches/0010-decrypt-data-button.patch"
 PATCH_FBE_PIN_VALIDATE="$DEVICE_PATH/patches/0011-fbe-pin-validate.patch"
 # WIP126: exclude /data/system/frp_secret from backups (causes FRP lock on restore)
 PATCH_FRP_EXCLUDE="$DEVICE_PATH/patches/0012-frp-exclude.patch"
+# WIP131: vendor unmount/flash teardown - free /vendor from the decrypt stack (daemons +
+# nested mounts + dm) so the user can unmount or flash a custom vendor image; restore via
+# `setprop twrp.decrypt.run 1`
+PATCH_VENDOR_TEARDOWN="$DEVICE_PATH/patches/0013-vendor-mount-unmount.patch"
 
 apply_patch() {
     local patch="$1"
@@ -96,6 +100,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_DECRYPT_BUTTON" "$TWRP_ROOT/gui/action.cpp" "check_lockscreen_cred"
     apply_patch "$PATCH_FBE_PIN_VALIDATE" "$TWRP_ROOT/gui/action.cpp" "fbe_backup_pin_check"
     apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
+    apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP131"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
