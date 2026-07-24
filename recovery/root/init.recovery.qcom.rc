@@ -202,8 +202,14 @@ on property:twrp.decrypt.run=1
 # vendor image) set this prop; decrypt.sh sees it at the top, tears down the stack that
 # holds /vendor (daemons + nested mounts + dm), writes /tmp/.vendor_freed, and exits 0
 # WITHOUT running the decrypt flow. Restore decryption afterwards: setprop twrp.decrypt.run 1
+# WIP136: use `exec` instead of `start decrypt`. `start` does NOT re-launch a oneshot service
+# that is already running (e.g. the initial auto-decrypt from `on boot`), so if a GUI unmount
+# happens WHILE decrypt.sh is still running the decrypt flow, init ignores the `start` command
+# and the hook busy-waits 30s for a marker that never arrives (the running script never enters
+# the teardown block because it already passed the prop check). `exec` unconditionally spawns
+# a fresh decrypt.sh instance that WILL see vendor_teardown=1 and create the marker.
 on property:twrp.decrypt.vendor_teardown=1
-    start decrypt
+    exec - root root -- /system/bin/decrypt.sh
 
 # Oneshot orchestrator: mount dump -> VINTF overlay -> stop A12 sm/keystore2 ->
 # start the A16 stack below -> drive the metadata decrypt via the matched A16 vdc.
