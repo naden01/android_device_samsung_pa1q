@@ -41,19 +41,22 @@ if [ "$(getprop twrp.decrypt.vendor_teardown)" = "1" ]; then
         echo "  $svc -> $(getprop init.svc.$svc)"
     done
     # 2. Drop the two nested mounts ON TOP of /vendor first (else /vendor stays busy).
-    umount /vendor/etc/vintf 2>/dev/null    && echo "  umount /vendor/etc/vintf ok"
-    umount /vendor/firmware_mnt 2>/dev/null && echo "  umount /vendor/firmware_mnt ok"
+    #    WIP134: call toybox DIRECTLY (absolute path), never the bare `umount` - the terminal
+    #    wrapper we install below (/sbin/umount) intercepts a bare `umount /vendor` and would
+    #    re-trigger this very teardown -> recursion. Direct toybox bypasses the wrapper.
+    /system/bin/toybox umount /vendor/etc/vintf 2>/dev/null    && echo "  umount /vendor/etc/vintf ok"
+    /system/bin/toybox umount /vendor/firmware_mnt 2>/dev/null && echo "  umount /vendor/firmware_mnt ok"
     # 3. Now /vendor itself. Lazy fallback (MNT_DETACH) if a straggler fd lingers.
-    if umount /vendor 2>/dev/null; then
+    if /system/bin/toybox umount /vendor 2>/dev/null; then
         echo "  umount /vendor ok"
     else
-        umount -l /vendor 2>/dev/null && echo "  umount -l /vendor (lazy) ok"
+        /system/bin/toybox umount -l /vendor 2>/dev/null && echo "  umount -l /vendor (lazy) ok"
     fi
-    # 4. Delete the dm-linear device so the underlying super region is free for a raw flash.
-    #    Best-effort: absent/held dm is not fatal (a plain unmount does not need this).
-    for dm in vendor_a vendor_b vendor; do
-        dmctl delete "$dm" 2>/dev/null && echo "  dmctl delete $dm ok" && break
-    done
+    # 4. Do NOT delete the dm-linear device (mapper/vendor_a = dm-5). /vendor AND
+    #    /vendor_image both flash THROUGH this dm (Is_Super dynamic partition), so the raw
+    #    image write targets dm-5 itself - deleting it would break the flash AND make a later
+    #    `mount /vendor` impossible (no device to mount). A plain unmount already frees the
+    #    block for writing; the dm must stay alive. Nothing to do here.
     # 5. Marker the C++ hook polls for (rm'd above so it only appears when we are truly done).
     touch /tmp/.vendor_freed
     echo "----- WIP131 vendor teardown done: /vendor freed (restore via 'setprop twrp.decrypt.run 1') -----"
@@ -68,6 +71,54 @@ fi
 # Clearing -b all once here means every grep can only ever see lines this run produced; it
 # also resets hs_base to 0 so the count-delta still works unchanged.
 logcat -c -b all 2>/dev/null
+
+# WIP134: install terminal convenience wrappers for /vendor mount/unmount. A bare
+# `umount /vendor` / `mount /vendor` typed in the TWRP terminal (or `adb shell`) should Just
+# Work like the GUI button instead of hitting EBUSY (the decrypt daemons hold /vendor on a
+# fresh boot, so toybox's umount fails). We drop tiny wrappers in /sbin - it is FIRST in PATH
+# and has no mount/umount of its own (those resolve to /system/bin/toybox) - that intercept
+# EXACTLY a single `/vendor` (or `vendor`) argument and run the teardown/restore; EVERY other
+# invocation (flags, other paths, -t ...) is passed straight through to toybox unchanged. The
+# teardown block above calls toybox by absolute path, so it never re-enters the umount wrapper
+# (no recursion). decrypt.sh's own mount calls all carry -t/--bind + multiple args, so they
+# never match the single-arg guard either. Best-effort: a read-only /sbin just means the
+# terminal shortcut is unavailable - the GUI button + setprop path still work.
+if [ -d /sbin ] && [ ! -e /sbin/.vendor_wrappers ]; then
+    cat > /sbin/umount <<'WRAP_U'
+#!/system/bin/sh
+if [ "$#" = 1 ] && { [ "$1" = "/vendor" ] || [ "$1" = "vendor" ]; } && [ -e /vendor/bin/qseecomd ]; then
+    echo "vendor held by decrypt - tearing down (takes a few seconds)..."
+    rm -f /tmp/.vendor_freed 2>/dev/null
+    setprop twrp.decrypt.vendor_teardown 1
+    n=0
+    while [ "$n" -lt 300 ] && [ ! -e /tmp/.vendor_freed ]; do sleep 0.1; n=$((n + 1)); done
+    [ -e /tmp/.vendor_freed ] && echo "/vendor unmounted" || echo "timeout - see /tmp/decrypt.log"
+    exit 0
+fi
+exec /system/bin/toybox umount "$@"
+WRAP_U
+    cat > /sbin/mount <<'WRAP_M'
+#!/system/bin/sh
+# A bare `mount /vendor` just re-mounts the raw dm device (mapper/vendor_a = dm-5) with the
+# kernel auto-detecting the filesystem (erofs/ext4/f2fs - whatever the user flashed). It does
+# NOT restart the decrypt stack: re-mounting vendor and restoring /data decryption are separate
+# user choices. To get /data back the user runs `setprop twrp.decrypt.run 1` (or reboots) when
+# THEY decide - not implicitly here. Everything except a single `/vendor` arg -> toybox.
+if [ "$#" = 1 ] && { [ "$1" = "/vendor" ] || [ "$1" = "vendor" ]; }; then
+    if grep -q " /vendor " /proc/mounts 2>/dev/null; then echo "/vendor already mounted"; exit 0; fi
+    for d in /dev/block/mapper/vendor_a /dev/block/mapper/vendor_b /dev/block/mapper/vendor; do
+        [ -e "$d" ] || continue
+        /system/bin/toybox mount "$d" /vendor 2>/dev/null && { echo "/vendor mounted ($d)"; exit 0; }
+    done
+    echo "could not mount /vendor (no vendor dm device found)"
+    exit 1
+fi
+exec /system/bin/toybox mount "$@"
+WRAP_M
+    chmod 0755 /sbin/umount /sbin/mount 2>/dev/null
+    touch /sbin/.vendor_wrappers 2>/dev/null
+    echo "WIP134: installed /sbin/{mount,umount} vendor terminal wrappers"
+fi
 
 # /metadata mount: with TWRP crypto disabled (BoardConfig) TWRP no longer mounts
 # /metadata at startup, but the entire metadata-encryption key dir lives there - and so
