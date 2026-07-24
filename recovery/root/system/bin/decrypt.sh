@@ -84,6 +84,18 @@ logcat -c -b all 2>/dev/null
 # never match the single-arg guard either. Best-effort: a read-only /sbin just means the
 # terminal shortcut is unavailable - the GUI button + setprop path still work.
 if [ -d /sbin ] && [ ! -e /sbin/.vendor_wrappers ]; then
+    # WIP135: the heredocs below stage their body through a shell temp file ($TMPDIR,
+    # default /tmp). If TMPDIR is unset/empty/missing at this point the temp file can't
+    # be created ("can't create temporary file : No such file or directory") and `cat`
+    # writes an EMPTY wrapper. A 0-byte but executable /sbin/mount then SHADOWS
+    # /system/bin/toybox mount for the whole session (/sbin is first in PATH), so EVERY
+    # mount silently no-ops - /metadata, /data decrypt and the daemon stack all fail
+    # (this is exactly what bricked WIP134 on a fresh boot). Pin TMPDIR to a real dir
+    # first, then verify both wrappers are non-empty before arming them; if either is
+    # empty/unwritable we delete BOTH and skip the marker so mount/umount fall back to
+    # toybox (the terminal shortcut is lost, but nothing is broken).
+    mkdir -p /tmp 2>/dev/null
+    { [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; } || export TMPDIR=/tmp
     cat > /sbin/umount <<'WRAP_U'
 #!/system/bin/sh
 if [ "$#" = 1 ] && { [ "$1" = "/vendor" ] || [ "$1" = "vendor" ]; } && [ -e /vendor/bin/qseecomd ]; then
@@ -115,9 +127,18 @@ if [ "$#" = 1 ] && { [ "$1" = "/vendor" ] || [ "$1" = "vendor" ]; }; then
 fi
 exec /system/bin/toybox mount "$@"
 WRAP_M
-    chmod 0755 /sbin/umount /sbin/mount 2>/dev/null
-    touch /sbin/.vendor_wrappers 2>/dev/null
-    echo "WIP134: installed /sbin/{mount,umount} vendor terminal wrappers"
+    # WIP135: only arm the wrappers if BOTH were written non-empty. An empty wrapper
+    # shadows toybox and no-ops all mounts (see the TMPDIR note above) - far worse than
+    # having no shortcut. If either is empty/missing, remove both so PATH falls through
+    # to /system/bin/toybox, and don't drop the .vendor_wrappers marker (next run retries).
+    if [ -s /sbin/umount ] && [ -s /sbin/mount ]; then
+        chmod 0755 /sbin/umount /sbin/mount 2>/dev/null
+        touch /sbin/.vendor_wrappers 2>/dev/null
+        echo "WIP135: installed /sbin/{mount,umount} vendor terminal wrappers"
+    else
+        rm -f /sbin/umount /sbin/mount 2>/dev/null
+        echo "WARN: /sbin mount/umount wrappers empty (TMPDIR issue) - skipped, using toybox"
+    fi
 fi
 
 # /metadata mount: with TWRP crypto disabled (BoardConfig) TWRP no longer mounts
