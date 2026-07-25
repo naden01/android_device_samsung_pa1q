@@ -38,6 +38,10 @@ PATCH_VENDOR_TEARDOWN="$DEVICE_PATH/patches/0013-vendor-mount-unmount.patch"
 # WIP145: fix synthetic /super showing Size 0MB - read the real block-device size via
 # Update_Size (BLKGETSIZE64 ioctl on sda31) so Backup shows the right size and dd works
 PATCH_SUPER_SIZE="$DEVICE_PATH/patches/0014-super-size.patch"
+# WIP148: force_writable + size-guard - lets restore/flash write an image into a read-only
+# super sub-partition (dm-N) or super itself. Clears the dm read-only flag for the single
+# write (BLKROSET) after a size-guard (refuse if image > extent). Backup unaffected (reads).
+PATCH_SUPER_FORCE_WRITABLE="$DEVICE_PATH/patches/0015-super-force-writable.patch"
 
 apply_patch() {
     local patch="$1"
@@ -105,6 +109,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
     apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP134"
     apply_patch "$PATCH_SUPER_SIZE" "$TWRP_ROOT/partitionmanager.cpp" "WIP145"
+    apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP148"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
