@@ -801,4 +801,27 @@ if [ -e /vendor/bin/thermal-engine-v2 ] && [ -e /system/etc/thermal-engine-recov
 else
     echo "thermal-engine skipped (binary or config missing)"
 fi
+
+# WIP144: cosmetic /system_root mount. system_a (dm-0) is already mounted at /decrypt (the
+# A16 stack lives there), so a bare `mount /system` in the terminal fails - the device is
+# busy AND TWRP's mount point for the system partition is /system_root, not /system. The GUI
+# Mount button works because TWRP mounts it at /system_root itself; the terminal has no such
+# helper. erofs is read-only and safely mountable multiple times from the same block device,
+# so we mount system_a a SECOND time at /system_root purely so the partition shows as mounted
+# (matches the other super partitions product/system_ext/etc that TWRP already mounts). This
+# is display-only and never touches the /decrypt stack. Bind-mount fallback if the direct
+# erofs mount is refused. Idempotent: skip if /system_root is already a mount.
+# NOTE: this belongs in decrypt.sh (runs at boot, /decrypt is up), NOT run_de_keyinstall.sh
+# (that runs mid-restore, before the stack/mounts exist - which is why mounting there failed).
+if ! grep -qE " /system_root " /proc/mounts 2>/dev/null; then
+    mkdir -p /system_root 2>/dev/null
+    _mounted=n
+    for s in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
+        [ -e "$s" ] && mount -t erofs -o ro "$s" /system_root 2>/dev/null && { _mounted=y; break; }
+    done
+    # Fallback: bind the already-mounted /decrypt (same erofs) onto /system_root.
+    [ "$_mounted" = "n" ] && [ -e /decrypt/system ] && mount --bind /decrypt /system_root 2>/dev/null && _mounted=y
+    grep -qE " /system_root " /proc/mounts 2>/dev/null && echo "/system_root mounted (display)" \
+        || echo "/system_root mount skipped"
+fi
 echo "===== decrypt done ====="
