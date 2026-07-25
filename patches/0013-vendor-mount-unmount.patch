@@ -1,7 +1,11 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: pa1q device tree <noreply@local>
-Date: Thu, 24 Jul 2026 21:00:00 +0300
-Subject: [PATCH] twrp: vendor unmount/flash teardown for decrypt stack
+From a9662419cc9e462f5b88cf79143617bf0701d06e Mon Sep 17 00:00:00 2001
+From: Test <test@test.com>
+Date: Sat, 25 Jul 2026 13:45:02 +0300
+Subject: [PATCH] WIP134+WIP138: vendor unmount/flash teardown with property
+ reset
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
 Two hooks in partition.cpp trigger decrypt.sh's vendor-teardown mode:
  - UnMount(): a user-initiated (Display_Error) unmount of /vendor that is
@@ -11,10 +15,20 @@ Both poll /tmp/.vendor_freed for up to 30s (stopping 8 daemons + unmounts
 can exceed 10s; a short wait made the first tap fail with EBUSY). gui_print
 avoids the missing-string-resource error line. Gated on Display_Error so the
 automatic UnMount_Main_Partitions() at boot never triggers teardown.
+
+WIP138: Reset property to 0 before setting to 1. Init triggers fire only on
+VALUE CHANGE - if a previous timeout left the prop at 1, a direct setprop 1
+is a no-op (1→1 = no change). The 50ms usleep gives init time to register
+the 1→0 transition before the 0→1 that fires the teardown.
 ---
+ partition.cpp | 39 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/partition.cpp b/partition.cpp
+index 184cb16..4da8520 100644
 --- a/partition.cpp
 +++ b/partition.cpp
-@@ -1749,6 +1749,23 @@
+@@ -1749,6 +1749,28 @@ bool TWPartition::UnMount(bool Display_Error, int flags) {
  			umount2(Symlink_Mount_Point.c_str(), flags);
  
  		umount2(Mount_Point.c_str(), flags);
@@ -27,6 +41,11 @@ automatic UnMount_Main_Partitions() at boot never triggers teardown.
 +		if (Is_Mounted() && Display_Error && Mount_Point == "/vendor" && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
 +			gui_print("Vendor held by decrypt - releasing...\n");
 +			unlink("/tmp/.vendor_freed");
++			// WIP138: force 0→1 transition; init's `on property:` trigger fires only on VALUE
++			// CHANGE. If a previous attempt timed out and left the prop at 1, a direct `setprop 1`
++			// is a no-op for init (1→1 = no change) and the teardown never fires. Reset to 0 first.
++			TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 0");
++			usleep(50000);  // 50ms: give init time to register the 1→0 change
 +			TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
 +			int vt_wait = 0;
 +			while (vt_wait < 300 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
@@ -38,16 +57,19 @@ automatic UnMount_Main_Partitions() at boot never triggers teardown.
  		if (Is_Mounted()) {
  			if (Display_Error)
  				gui_msg(Msg(msg::kError, "fail_unmount=Failed to unmount '{1}' ({2})")(Mount_Point)(strerror(errno)));
-@@ -3303,6 +3320,19 @@
+@@ -3303,6 +3325,23 @@ bool TWPartition::Flash_Image(PartitionSettings *part_settings) {
  
  	LOGINFO("Image filename is: %s\n", Backup_FileName.c_str());
  
-+	// WIP134: free /vendor from the decrypt stack before flashing a vendor image, else
-+	// the raw super region is busy (dm-linear mapper/vendor_a still mounted + daemons hold
-+	// it). Same 30s timeout as the UnMount hook so the teardown finishes before we write.
++	// WIP134: vendor/vendor_image flash -> trigger teardown before writing, preventing
++	// "vendor is busy" errors. Same 30s poll. Gating on qseecomd ensures this only runs
++	// on decrypt-enabled devices.
 +	if ((Mount_Point == "/vendor" || Mount_Point == "/vendor_image") && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
 +		gui_print("Releasing vendor for flashing...\n");
 +		unlink("/tmp/.vendor_freed");
++		// WIP138: same 0→1 reset pattern as UnMount hook (see comment there)
++		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 0");
++		usleep(50000);
 +		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
 +		int vt_wait = 0;
 +		while (vt_wait < 300 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
@@ -55,6 +77,10 @@ automatic UnMount_Main_Partitions() at boot never triggers teardown.
 +			vt_wait++;
 +		}
 +	}
++
  	if (Backup_Method == BM_FILES) {
  		LOGERR("Cannot flash images to file systems\n");
  		return false;
+-- 
+2.54.0.windows.1
+
