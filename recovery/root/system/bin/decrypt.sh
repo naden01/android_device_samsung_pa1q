@@ -52,14 +52,29 @@ if [ "$(getprop twrp.decrypt.vendor_teardown)" = "1" ]; then
     else
         /system/bin/toybox umount -l /vendor 2>/dev/null && echo "  umount -l /vendor (lazy) ok"
     fi
-    # 4. Do NOT delete the dm-linear device (mapper/vendor_a = dm-5). /vendor AND
-    #    /vendor_image both flash THROUGH this dm (Is_Super dynamic partition), so the raw
-    #    image write targets dm-5 itself - deleting it would break the flash AND make a later
-    #    `mount /vendor` impossible (no device to mount). A plain unmount already frees the
-    #    block for writing; the dm must stay alive. Nothing to do here.
-    # 5. Marker the C++ hook polls for (rm'd above so it only appears when we are truly done).
+    # 4. WIP146: also free system_a (dm-0) so a system-image restore can write into it.
+    #    system_a is mounted at /decrypt (the whole A16 stack lives there) and, if WIP144
+    #    ran, also at /system_root. The daemons above (which mmap .so from
+    #    /decrypt/system/lib64) are ALL stopped by step 1, so /decrypt has no holders left
+    #    and can be unmounted now. This teardown is unified: it releases the ENTIRE decrypt
+    #    stack (vendor AND system together) because they are inseparable - the daemons need
+    #    .so from BOTH /vendor/lib64 and /decrypt/system/lib64. Restore of system OR vendor
+    #    is always followed by a reboot, so we never re-mount here (same policy as vendor).
+    #    Direct toybox (absolute path) to bypass the /sbin wrappers (no recursion).
+    /system/bin/toybox umount /system_root 2>/dev/null && echo "  umount /system_root ok"
+    if /system/bin/toybox umount /decrypt 2>/dev/null; then
+        echo "  umount /decrypt ok"
+    else
+        /system/bin/toybox umount -l /decrypt 2>/dev/null && echo "  umount -l /decrypt (lazy) ok"
+    fi
+    # 5. Do NOT delete the dm-linear devices (mapper/vendor_a = dm-5, mapper/system_a = dm-0).
+    #    The images flash THROUGH these dm devices (Is_Super dynamic partitions), so the raw
+    #    image write targets the dm itself - deleting it would break the flash AND make a later
+    #    `mount` impossible (no device to mount). A plain unmount already frees the block for
+    #    writing; the dm must stay alive. Nothing to do here.
+    # 6. Marker the C++ hook polls for (rm'd above so it only appears when we are truly done).
     touch /tmp/.vendor_freed
-    echo "----- WIP131 vendor teardown done: /vendor freed (restore via 'setprop twrp.decrypt.run 1') -----"
+    echo "----- WIP131/146 teardown done: /vendor + /decrypt(system) freed (restore via 'setprop twrp.decrypt.run 1') -----"
     exit 0
 fi
 
