@@ -1,8 +1,6 @@
-diff --git a/gui/action.cpp b/gui/action.cpp
-index 4745131..6fb09c3 100644
 --- a/gui/action.cpp
 +++ b/gui/action.cpp
-@@ -213,6 +213,9 @@ GUIAction::GUIAction(xml_node<>* node)
+@@ -213,6 +213,9 @@
  		// WIP112: runs in the CALLER thread (cheap tar-header scan) so it can gui_changePage
  		// straight to restore_run/fbe_restore_pin without colliding with the nandroid thread.
  		ADD_ACTION(fbe_pin_check);
@@ -12,10 +10,11 @@ index 4745131..6fb09c3 100644
  		ADD_ACTION(check_lockscreen_cred);
  
  		// remember actions that run in the caller thread
-@@ -1742,6 +1745,132 @@ int GUIAction::fbe_pin_check(std::string arg __unused)
+@@ -1751,6 +1754,148 @@
+ 	}
  	return 0;
  }
- 
++
 +// WIP126/143: Restore button on main2 -> check whether the live /data is protected by a
 +// lockscreen credential. Runs in the CALLER thread so gui_changePage is safe. If decrypt.sh
 +// has not finished yet (/tmp/.fbe_keyids absent) do nothing (button inert until ready). If CE
@@ -30,11 +29,14 @@ index 4745131..6fb09c3 100644
 +	}
 +	DataManager::SetValue("tw_fbe_pin", "");
 +	DataManager::SetValue("tw_password_fail", 0);
-+	if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
-+		LOGINFO("WIP129: fbe_restore_pin_check: CE unlocked -> restore\n");
-+		gui_changePage("restore");
-+		return 0;
-+	}
++	// WIP150: scan the LIVE spblob for a credential FIRST, on EVERY button press. This must
++	// run before the /tmp/.ce_sp shortcut: .ce_sp is a tmpfs marker cached after a prior CE
++	// unlock, but if the user Format-Data'd meanwhile the spblob (and its .pwd) is gone while
++	// the stale .ce_sp lingers - the old order took the .ce_sp path and skipped the (now
++	// wiped) credential check, which is fine, but if instead there is genuinely no credential
++	// we must drop the stale marker so later logic is consistent. No spblob dir or no .pwd =
++	// no lockscreen credential (Format Data / biometric-only / never set) -> proceed with NO
++	// PIN. Only when a real .pwd exists do we consult the .ce_sp cache or prompt.
 +	bool has_credential = false;
 +	DIR* dir = opendir("/data/system_de/0/spblob");
 +	if (dir) {
@@ -48,14 +50,20 @@ index 4745131..6fb09c3 100644
 +		}
 +		closedir(dir);
 +	}
-+	if (has_credential) {
-+		DataManager::SetValue("tw_fbe_pin_mode", 0); // 0 = restore
-+		LOGINFO("WIP129: fbe_restore_pin_check: credential found -> PIN page\n");
-+		gui_changePage("fbe_restore_pin");
-+	} else {
-+		LOGINFO("WIP129: fbe_restore_pin_check: no credential -> restore\n");
++	if (!has_credential) {
++		unlink("/tmp/.ce_sp");  // drop stale unlock marker (e.g. after Format Data)
++		LOGINFO("WIP150: fbe_restore_pin_check: no live credential -> restore (no PIN)\n");
 +		gui_changePage("restore");
++		return 0;
 +	}
++	if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
++		LOGINFO("WIP129: fbe_restore_pin_check: CE unlocked -> restore\n");
++		gui_changePage("restore");
++		return 0;
++	}
++	DataManager::SetValue("tw_fbe_pin_mode", 0); // 0 = restore
++	LOGINFO("WIP129: fbe_restore_pin_check: credential found -> PIN page\n");
++	gui_changePage("fbe_restore_pin");
 +	return 0;
 +}
 +
@@ -69,11 +77,12 @@ index 4745131..6fb09c3 100644
 +	}
 +	DataManager::SetValue("tw_fbe_pin", "");
 +	DataManager::SetValue("tw_password_fail", 0);
-+	if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
-+		LOGINFO("WIP126: fbe_backup_pin_check: CE already unlocked -> backup\n");
-+		gui_changePage("backup");
-+		return 0;
-+	}
++	// WIP150: scan the LIVE spblob FIRST, on every button press. After a Format Data the
++	// spblob (and its *.pwd) is gone but a stale /tmp/.ce_sp from an earlier unlock may still
++	// sit in tmpfs - the old order checked .ce_sp first and wrongly skipped straight in. So:
++	// no credential on disk now (Format Data / biometric-only / no lock) -> drop any stale
++	// .ce_sp and proceed WITHOUT a PIN. Only if a real .pwd credential exists do we then honour
++	// the .ce_sp unlock cache, else prompt for the PIN.
 +	bool has_credential = false;
 +	DIR* dir = opendir("/data/system_de/0/spblob");
 +	if (dir) {
@@ -87,14 +96,20 @@ index 4745131..6fb09c3 100644
 +		}
 +		closedir(dir);
 +	}
-+	if (has_credential) {
-+		DataManager::SetValue("tw_fbe_pin_mode", 1); // 1 = backup
-+		LOGINFO("WIP126: fbe_backup_pin_check: credential present -> PIN page\n");
-+		gui_changePage("fbe_backup_pin");
-+	} else {
-+		LOGINFO("WIP126: fbe_backup_pin_check: no credential -> backup\n");
++	if (!has_credential) {
++		unlink("/tmp/.ce_sp");  // drop stale unlock marker (e.g. after Format Data)
++		LOGINFO("WIP150: fbe_backup_pin_check: no live credential -> backup (no PIN)\n");
 +		gui_changePage("backup");
++		return 0;
 +	}
++	if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
++		LOGINFO("WIP126: fbe_backup_pin_check: CE already unlocked -> backup\n");
++		gui_changePage("backup");
++		return 0;
++	}
++	DataManager::SetValue("tw_fbe_pin_mode", 1); // 1 = backup
++	LOGINFO("WIP126: fbe_backup_pin_check: credential present -> PIN page\n");
++	gui_changePage("fbe_backup_pin");
 +	return 0;
 +}
 +
@@ -141,15 +156,12 @@ index 4745131..6fb09c3 100644
 +	}
 +	return 0;
 +}
-+
+ 
  int GUIAction::repair(std::string arg __unused)
  {
- 	int op_status = 0;
-diff --git a/gui/objects.hpp b/gui/objects.hpp
-index 7aa201c..7c171cf 100644
 --- a/gui/objects.hpp
 +++ b/gui/objects.hpp
-@@ -360,6 +360,9 @@ protected:
+@@ -360,6 +360,9 @@
  	int fixsu(std::string arg);
  	int decrypt_backup(std::string arg);
  	int fbe_pin_check(std::string arg);
@@ -159,8 +171,6 @@ index 7aa201c..7c171cf 100644
  	int repair(std::string arg);
  	int resize(std::string arg);
  	int changefilesystem(std::string arg);
-diff --git a/gui/theme/common/portrait.xml b/gui/theme/common/portrait.xml
-index 744e385..cce5ba4 100644
 --- a/gui/theme/common/portrait.xml
 +++ b/gui/theme/common/portrait.xml
 @@ -216,13 +216,13 @@
