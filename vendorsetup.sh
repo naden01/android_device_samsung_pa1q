@@ -35,6 +35,9 @@ PATCH_FRP_EXCLUDE="$DEVICE_PATH/patches/0012-frp-exclude.patch"
 # nested mounts + dm) so the user can unmount or flash a custom vendor image; restore via
 # `setprop twrp.decrypt.run 1`
 PATCH_VENDOR_TEARDOWN="$DEVICE_PATH/patches/0013-vendor-mount-unmount.patch"
+# WIP145: fix synthetic /super showing Size 0MB - read the real block-device size via
+# Update_Size (BLKGETSIZE64 ioctl on sda31) so Backup shows the right size and dd works
+PATCH_SUPER_SIZE="$DEVICE_PATH/patches/0014-super-size.patch"
 
 apply_patch() {
     local patch="$1"
@@ -101,6 +104,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_FBE_PIN_VALIDATE" "$TWRP_ROOT/gui/action.cpp" "fbe_backup_pin_check"
     apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
     apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP134"
+    apply_patch "$PATCH_SUPER_SIZE" "$TWRP_ROOT/partitionmanager.cpp" "WIP145"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
