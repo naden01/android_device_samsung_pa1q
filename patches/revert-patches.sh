@@ -34,6 +34,7 @@ REC="$TOP/bootable/recovery"
 #   0012-frp-exclude.patch              -> partition.cpp
 #   0013-vendor-mount-unmount.patch     -> partition.cpp
 #   0014-super-size.patch                -> partitionmanager.cpp
+#   0015-super-force-writable.patch      -> partition.cpp
 FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml"
 
 if [ ! -d "$REC" ]; then
