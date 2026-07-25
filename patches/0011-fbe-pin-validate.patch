@@ -1,8 +1,8 @@
-From 9783e0341dc960e67de1ddc9d51c3f8273ffa68d Mon Sep 17 00:00:00 2001
+From 4ea29fa60a8f57fa083b509bffa02011c12937e2 Mon Sep 17 00:00:00 2001
 From: Test <test@test.com>
-Date: Sat, 25 Jul 2026 16:26:20 +0300
-Subject: [PATCH] WIP141: fix fbe_pin_check - use .fbe_keyids instead of
- /sbin/decrypt.sh
+Date: Sat, 25 Jul 2026 16:56:04 +0300
+Subject: [PATCH] WIP142: fix fbe_backup_pin_check path - system_ce to
+ system_de
 
 ---
  gui/action.cpp                | 125 ++++++++++++++++++++++++++++++++++
@@ -11,7 +11,7 @@ Subject: [PATCH] WIP141: fix fbe_pin_check - use .fbe_keyids instead of
  3 files changed, 185 insertions(+), 5 deletions(-)
 
 diff --git a/gui/action.cpp b/gui/action.cpp
-index 4745131..e20aad2 100644
+index 4745131..282ecf8 100644
 --- a/gui/action.cpp
 +++ b/gui/action.cpp
 @@ -213,6 +213,9 @@ GUIAction::GUIAction(xml_node<>* node)
@@ -89,7 +89,7 @@ index 4745131..e20aad2 100644
 +	bool cred_present = false;
 +	{
 +		string result;
-+		TWFunc::Exec_Cmd("ls /data/system_ce/0/spblob/*.pwd 2>/dev/null | head -n1", result, false);
++		TWFunc::Exec_Cmd("ls /data/system_de/0/spblob/*.pwd 2>/dev/null | head -n1", result, false);
 +		if (!result.empty()) {
 +			cred_present = true;
 +		}
