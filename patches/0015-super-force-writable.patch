@@ -1,47 +1,73 @@
---- a/partition.cpp	2026-07-25 22:05:07.689980000 +0300
-+++ b/partition.cpp	2026-07-25 22:12:39.833733600 +0300
-@@ -2952,6 +2952,44 @@
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -2952,6 +2952,23 @@
  		}
  	}
  
-+	// WIP148: force_writable + size-guard for writing an image into a READ-ONLY super
-+	// sub-partition (dm-N over sda31) or super itself. TWRP maps every dynamic partition
-+	// (system/vendor/product/system_ext/system_dlkm/vendor_dlkm/odm) as a read-only
-+	// dm-linear device, so a raw write returns EPERM ("Operation not permitted") - which
-+	// is why restoring/flashing these images fails. This runs ONLY on a WRITE (PM_BACKUP
-+	// only reads, always allowed) and ONLY when destfn is a block device the kernel reports
-+	// read-only (BLKROGET). Two steps:
-+	//   1. SIZE-GUARD: a dd write cannot resize the extent (only fastbootd/liblp can). If
-+	//      the image is LARGER than the device it would overflow the extent boundary and
-+	//      corrupt the neighbouring partition inside super -> refuse instead.
-+	//   2. BLKROSET 0: clear the read-only flag on THIS device only, for this write. The
-+	//      caller (Restore_Image/Flash_Image, patch 0013) already tore down the decrypt
-+	//      stack for vendor/system so the target is unmounted; a reboot follows and the
-+	//      flag reverts on the next TWRP boot, so it never persists. Physical writable
-+	//      partitions (boot/modem/optics/... ) are not read-only here, so this is a no-op
-+	//      for them - they restore/flash exactly as before.
++	// WIP149: SIZE-GUARD for writing an image into a super sub-partition. The dm devices are
++	// now created force-writable (Setup_Super_Devices, this patch) so the write itself is
++	// permitted, but a raw dd write CANNOT resize the extent - only fastbootd/liblp can. If the
++	// image is LARGER than the target device it would overflow the extent boundary and corrupt
++	// the neighbouring partition inside super. So on any WRITE (PM_BACKUP only reads, always
++	// allowed) refuse when the source image exceeds the destination block device size. Physical
++	// partitions (boot/modem/optics/...) hit this too, but there the device size == partition
++	// size so a same-size image passes; a genuinely oversized image is correctly refused.
 +	if (part_settings->PM_Method != PM_BACKUP && !part_settings->adbbackup) {
-+		int rfd = open(destfn.c_str(), O_RDONLY | O_CLOEXEC);
-+		if (rfd >= 0) {
-+			int is_ro = 0;
-+			if (ioctl(rfd, BLKROGET, &is_ro) == 0 && is_ro) {
-+				unsigned long long dev_sz = TWFunc::IOCTL_Get_Block_Size(destfn.c_str());
-+				if (dev_sz && Remain > dev_sz) {
-+					gui_print_color("error", "Image (%llu MB) is larger than partition '%s' (%llu MB). Use fastbootd to flash a larger image.\n",
-+						(unsigned long long)(Remain / 1048576ULL), Mount_Point.c_str(), (unsigned long long)(dev_sz / 1048576ULL));
-+					close(rfd);
-+					return false;
-+				}
-+				int off = 0;
-+				if (ioctl(rfd, BLKROSET, &off) == 0)
-+					LOGINFO("WIP148: cleared read-only on '%s' for image write (img=%llu dev=%llu bytes)\n", destfn.c_str(), (unsigned long long)Remain, dev_sz);
-+				else
-+					LOGINFO("WIP148: BLKROSET failed on '%s': %s\n", destfn.c_str(), strerror(errno));
-+			}
-+			close(rfd);
++		unsigned long long dev_sz = TWFunc::IOCTL_Get_Block_Size(destfn.c_str());
++		if (dev_sz && Remain > dev_sz) {
++			gui_print_color("error", "Image (%llu MB) is larger than partition '%s' (%llu MB). Use fastbootd to flash a larger image.\n",
++				(unsigned long long)(Remain / 1048576ULL), Mount_Point.c_str(), (unsigned long long)(dev_sz / 1048576ULL));
++			return false;
 +		}
 +	}
 +
  	src_fd = open(srcfn.c_str(), O_RDONLY | O_LARGEFILE);
  	if (src_fd < 0) {
  		gui_msg(Msg(msg::kError, "error_opening_strerr=Error opening: '{1}' ({2})")(srcfn.c_str())(strerror(errno)));
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -3676,7 +3676,43 @@
+ 
+ void TWPartitionManager::Setup_Super_Devices() {
+ 	std::string superPart = Get_Super_Partition();
+-	android::fs_mgr::CreateLogicalPartitions(superPart);
++	// WIP149: create the super dm-linear devices FORCE-WRITABLE. AOSP maps every dynamic
++	// partition (system/vendor/product/system_ext/system_dlkm/vendor_dlkm/odm) read-only
++	// because the LP metadata carries LP_PARTITION_ATTR_READONLY, and that read-only flag
++	// lives in the dm TABLE itself - not just the block device. BLKROSET clears only the
++	// gendisk flag, so a raw write still returns EPERM ("Operation not permitted"); the ONLY
++	// way to make the dm target writable is to build its table with readonly=false, which is
++	// exactly what CreateLogicalPartitionParams::force_writable does (same knob fastbootd uses
++	// to flash these partitions). We replicate the stock CreateLogicalPartitions() loop but set
++	// force_writable=true so restore/flash of a super image can land on the dm device. This is
++	// safe: the partitions still mount as read-only erofs at the FS layer, TWRP never writes to
++	// them except during an explicit restore/flash, and the size-guard in Raw_Read_Write
++	// (this patch) refuses any image larger than the extent. If metadata can't be read we fall
++	// back to the stock read-only mapping so the device still boots.
++	int slot_number = Get_Active_Slot_Display() == "A" ? 0 : 1;
++	std::unique_ptr<android::fs_mgr::LpMetadata> metadata =
++		android::fs_mgr::ReadMetadata(superPart.c_str(), slot_number);
++	if (!metadata) {
++		LOGERR("WIP149: could not read super LP metadata - falling back to read-only super mapping\n");
++		android::fs_mgr::CreateLogicalPartitions(superPart);
++		return;
++	}
++	android::fs_mgr::CreateLogicalPartitionParams params = {
++		.block_device = superPart,
++		.metadata = metadata.get(),
++	};
++	params.force_writable = true;
++	for (const auto& partition : metadata->partitions) {
++		if (!partition.num_extents)
++			continue;
++		if (partition.attributes & LP_PARTITION_ATTR_DISABLED)
++			continue;
++		params.partition = &partition;
++		std::string ignore_path;
++		if (!android::fs_mgr::CreateLogicalPartition(params, &ignore_path))
++			LOGERR("WIP149: could not create writable logical partition: %s\n",
++				android::fs_mgr::GetPartitionName(partition).c_str());
++	}
+ }
+ 
+ void TWPartitionManager::Setup_Super_Partition() {

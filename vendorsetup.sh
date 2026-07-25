@@ -109,7 +109,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
     apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP134"
     apply_patch "$PATCH_SUPER_SIZE" "$TWRP_ROOT/partitionmanager.cpp" "WIP145"
-    apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP148"
+    apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP149"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
