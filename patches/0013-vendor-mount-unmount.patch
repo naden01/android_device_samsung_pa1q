@@ -1,34 +1,6 @@
-From a9662419cc9e462f5b88cf79143617bf0701d06e Mon Sep 17 00:00:00 2001
-From: Test <test@test.com>
-Date: Sat, 25 Jul 2026 13:45:02 +0300
-Subject: [PATCH] WIP134+WIP138: vendor unmount/flash teardown with property
- reset
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Two hooks in partition.cpp trigger decrypt.sh's vendor-teardown mode:
- - UnMount(): a user-initiated (Display_Error) unmount of /vendor that is
-   still held by the decrypt daemons runs the teardown then retries.
- - Flash_Image(): frees /vendor before writing a vendor image.
-Both poll /tmp/.vendor_freed for up to 30s (stopping 8 daemons + unmounts
-can exceed 10s; a short wait made the first tap fail with EBUSY). gui_print
-avoids the missing-string-resource error line. Gated on Display_Error so the
-automatic UnMount_Main_Partitions() at boot never triggers teardown.
-
-WIP138: Reset property to 0 before setting to 1. Init triggers fire only on
-VALUE CHANGE - if a previous timeout left the prop at 1, a direct setprop 1
-is a no-op (1→1 = no change). The 50ms usleep gives init time to register
-the 1→0 transition before the 0→1 that fires the teardown.
----
- partition.cpp | 39 +++++++++++++++++++++++++++++++++++++++
- 1 file changed, 39 insertions(+)
-
-diff --git a/partition.cpp b/partition.cpp
-index 184cb16..4da8520 100644
---- a/partition.cpp
-+++ b/partition.cpp
-@@ -1749,6 +1749,28 @@ bool TWPartition::UnMount(bool Display_Error, int flags) {
+--- a/partition.cpp	2026-07-25 21:58:32.971675100 +0300
++++ b/partition.cpp	2026-07-25 21:55:50.311730200 +0300
+@@ -1751,6 +1751,28 @@
  			umount2(Symlink_Mount_Point.c_str(), flags);
  
  		umount2(Mount_Point.c_str(), flags);
@@ -57,15 +29,51 @@ index 184cb16..4da8520 100644
  		if (Is_Mounted()) {
  			if (Display_Error)
  				gui_msg(Msg(msg::kError, "fail_unmount=Failed to unmount '{1}' ({2})")(Mount_Point)(strerror(errno)));
-@@ -3303,6 +3325,23 @@ bool TWPartition::Flash_Image(PartitionSettings *part_settings) {
+@@ -3275,6 +3297,31 @@
+ 	TWFunc::GUI_Operation_Text(TW_RESTORE_TEXT, Backup_Display_Name, gui_parse_text("{@restoring_hdr}"));
+ 	gui_msg(Msg("restoring=Restoring {1}...")(Backup_Display_Name));
+ 
++	// WIP147: restoring the vendor OR system image writes into a super sub-partition
++	// (mapper/vendor_a=dm-5 or mapper/system_a=dm-0) that the decrypt stack holds live:
++	// vendor is mounted at /vendor (5 daemons mmap its .so) and system_a at /decrypt (the
++	// whole A16 stack) + /system_root. Writing under a live mount corrupts it, so tear the
++	// stack down first (same unified teardown Flash_Image uses). decrypt.sh frees BOTH
++	// vendor and system together (they are inseparable). Only fires for these two targets on
++	// a decrypt-enabled device; every other partition restores unchanged. A reboot follows a
++	// system/vendor restore, so we never re-mount here. The size-guard + BLKROSET that let
++	// the actual write land on the now-read-only dm live in Raw_Read_Write (patch 0015).
++	if ((Mount_Point == "/vendor" || Mount_Point == "/vendor_image" ||
++	     Mount_Point == "/system" || Mount_Point == "/system_image" || Mount_Point == "/system_root")
++	    && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
++		gui_print("Releasing vendor/system for restore...\n");
++		unlink("/tmp/.vendor_freed");
++		// force a 0->1 transition (init fires the trigger only on value CHANGE)
++		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 0");
++		usleep(50000);
++		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 1");
++		int vt_wait = 0;
++		while (vt_wait < 300 && !TWFunc::Path_Exists("/tmp/.vendor_freed")) {
++			usleep(100000);
++			vt_wait++;
++		}
++	}
++
+ 	if (part_settings->adbbackup)
+ 		Full_FileName = TW_ADB_RESTORE;
+ 	else
+@@ -3541,6 +3588,27 @@
  
  	LOGINFO("Image filename is: %s\n", Backup_FileName.c_str());
  
-+	// WIP134: vendor/vendor_image flash -> trigger teardown before writing, preventing
-+	// "vendor is busy" errors. Same 30s poll. Gating on qseecomd ensures this only runs
-+	// on decrypt-enabled devices.
-+	if ((Mount_Point == "/vendor" || Mount_Point == "/vendor_image") && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
-+		gui_print("Releasing vendor for flashing...\n");
++	// WIP134/147: vendor OR system image flash -> trigger teardown before writing,
++	// preventing "device is busy" errors. The unified teardown (decrypt.sh, WIP146)
++	// frees BOTH vendor (/vendor) AND system (/decrypt + /system_root) together because
++	// the decrypt daemons mmap .so from both - so the same trigger covers a system flash.
++	// Same 30s poll. Gating on qseecomd ensures this only runs on decrypt-enabled devices.
++	if ((Mount_Point == "/vendor" || Mount_Point == "/vendor_image" ||
++	     Mount_Point == "/system" || Mount_Point == "/system_image" ||
++	     Mount_Point == "/system_root") && TWFunc::Path_Exists("/vendor/bin/qseecomd")) {
++		gui_print("Releasing vendor/system for flashing...\n");
 +		unlink("/tmp/.vendor_freed");
 +		// WIP138: same 0→1 reset pattern as UnMount hook (see comment there)
 +		TWFunc::Exec_Cmd("setprop twrp.decrypt.vendor_teardown 0");
@@ -81,6 +89,3 @@ index 184cb16..4da8520 100644
  	if (Backup_Method == BM_FILES) {
  		LOGERR("Cannot flash images to file systems\n");
  		return false;
--- 
-2.54.0.windows.1
-
