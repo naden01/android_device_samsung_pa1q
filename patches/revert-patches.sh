@@ -33,6 +33,7 @@ REC="$TOP/bootable/recovery"
 #   0011-fbe-pin-validate.patch         -> gui/action.cpp, gui/objects.hpp, gui/theme/common/portrait.xml
 #   0012-frp-exclude.patch              -> partition.cpp
 #   0013-vendor-mount-unmount.patch     -> partition.cpp
+#   0014-super-size.patch                -> partitionmanager.cpp
 FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml"
 
 if [ ! -d "$REC" ]; then
