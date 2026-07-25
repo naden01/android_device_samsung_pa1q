@@ -1,7 +1,19 @@
-diff -Naur base/gui/action.cpp modified/gui/action.cpp
---- base/gui/action.cpp	2026-07-23 23:15:25.014009485 +0300
-+++ modified/gui/action.cpp	2026-07-23 23:43:25.953867559 +0300
-@@ -213,6 +213,9 @@
+From 6d9c151b60d2fde31d4b1f8befd25d4ec5554eb3 Mon Sep 17 00:00:00 2001
+From: Test <test@test.com>
+Date: Sat, 25 Jul 2026 15:20:32 +0300
+Subject: [PATCH] WIP139: fbe_pin_validate with slider integration
+
+---
+ gui/action.cpp                | 125 ++++++++++++++++++++++++++++++++++
+ gui/objects.hpp               |   3 +
+ gui/theme/common/portrait.xml |  62 +++++++++++++++--
+ 3 files changed, 185 insertions(+), 5 deletions(-)
+
+diff --git a/gui/action.cpp b/gui/action.cpp
+index 4745131..95312fd 100644
+--- a/gui/action.cpp
++++ b/gui/action.cpp
+@@ -213,6 +213,9 @@ GUIAction::GUIAction(xml_node<>* node)
  		// WIP112: runs in the CALLER thread (cheap tar-header scan) so it can gui_changePage
  		// straight to restore_run/fbe_restore_pin without colliding with the nandroid thread.
  		ADD_ACTION(fbe_pin_check);
@@ -9,116 +21,104 @@ diff -Naur base/gui/action.cpp modified/gui/action.cpp
 +		ADD_ACTION(fbe_backup_pin_check);
 +		ADD_ACTION(fbe_pin_validate);
  		ADD_ACTION(check_lockscreen_cred);
-
+ 
  		// remember actions that run in the caller thread
-@@ -1735,12 +1738,138 @@
- 	if (need_pin) {
- 		DataManager::SetValue("tw_fbe_need_pin", 1);
- 		DataManager::SetValue("tw_password_fail", 0);
-+		// WIP126: if the CE layer is already unlocked this session (empty-LSKF at
-+		// boot, or a prior Decrypt Data / password unlock -> /tmp/.ce_sp cache), the
-+		// staged de_keyinstall will reuse it, so skip the PIN prompt for restore too.
-+		if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
-+			LOGINFO("WIP126: fbe_pin_check: CE already unlocked (/tmp/.ce_sp) -> skip PIN\n");
-+			gui_changePage("restore_run");
-+			return 0;
-+		}
-+		DataManager::SetValue("tw_fbe_pin_mode", 0); // 0 = restore destination
- 		gui_changePage("fbe_restore_pin");
- 	} else {
- 		gui_changePage("restore_run");
- 	}
+@@ -1742,6 +1745,128 @@ int GUIAction::fbe_pin_check(std::string arg __unused)
  	return 0;
  }
-+
-+// WIP126: Decide whether a backup needs a lockscreen credential before it starts.
-+// Runs in the CALLER thread so gui_changePage is safe. If the CE layer is already
-+// unlocked this session (/tmp/.ce_sp present) go straight to the backup page. Else,
-+// if the live spblob carries a .pwd protector, CE is locked -> prompt for the PIN so
-+// de_keyinstall can unlock it before the tar run. Biometric-only / no-lock -> straight in.
+ 
++// WIP126: Decide whether a restore needs a lockscreen credential before it starts.
++// Identical to fbe_pin_check but routes to fbe_restore_pin on match (mode=0 for restore).
 +// WIP129: fbe_restore_pin_check
 +int GUIAction::fbe_restore_pin_check(std::string arg __unused)
 +{
-+	if (!TWFunc::Path_Exists("/tmp/.fbe_keyids")) {
++	if (!TWFunc::Path_Exists("/sbin/decrypt.sh")) {
 +		LOGINFO("WIP129: fbe_restore_pin_check: decrypt.sh not ready yet\n");
++		gui_changePage("restore_run");
 +		return 0;
 +	}
-+	DataManager::SetValue("tw_fbe_pin", "");
-+	DataManager::SetValue("tw_password_fail", 0);
 +	if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
 +		LOGINFO("WIP129: fbe_restore_pin_check: CE unlocked -> restore\n");
-+		gui_changePage("restore");
++		gui_changePage("restore_run");
 +		return 0;
 +	}
-+	bool has_credential = false;
-+	DIR* dir = opendir("/data/system_de/0/spblob");
-+	if (dir) {
-+		struct dirent* ent;
-+		while ((ent = readdir(dir)) != NULL) {
-+			size_t len = strlen(ent->d_name);
-+			if (len > 4 && strcmp(ent->d_name + len - 4, ".pwd") == 0) {
-+				has_credential = true;
-+				break;
-+			}
++	string Restore_Path;
++	DataManager::GetValue("tw_restore", Restore_Path);
++	DataManager::SetValue("tw_fbe_pin", "");
++	DataManager::SetValue("tw_fbe_need_pin", 0);
++	bool need_pin = false;
++	{
++		string cmd =
++			"for f in '" + Restore_Path + "'/data.f2fs.win '" + Restore_Path + "'/data.f2fs.win[0-9][0-9][0-9]; do "
++			"[ -f \"$f\" ] || continue; "
++			"tar -tf \"$f\" 2>/dev/null | grep -m1 -E 'spblob/[^/]*\\.pwd$' && break; "
++			"done";
++		string result;
++		TWFunc::Exec_Cmd(cmd, result, false);
++		if (!result.empty()) {
++			need_pin = true;
++			LOGINFO("WIP129: fbe_restore_pin_check: credential found\n");
++		} else {
++			LOGINFO("WIP129: fbe_restore_pin_check: no credential\n");
 +		}
-+		closedir(dir);
 +	}
-+	if (has_credential) {
-+		DataManager::SetValue("tw_fbe_pin_mode", 1);
-+		LOGINFO("WIP129: fbe_restore_pin_check: credential found\n");
++	if (need_pin) {
++		DataManager::SetValue("tw_fbe_need_pin", 1);
++		DataManager::SetValue("tw_password_fail", 0);
++		DataManager::SetValue("tw_fbe_pin_mode", 0);
 +		gui_changePage("fbe_restore_pin");
 +	} else {
-+		LOGINFO("WIP129: fbe_restore_pin_check: no credential\n");
-+		gui_changePage("restore");
++		gui_changePage("restore_run");
 +	}
 +	return 0;
 +}
 +
 +int GUIAction::fbe_backup_pin_check(std::string arg __unused)
 +{
-+	if (!TWFunc::Path_Exists("/tmp/.fbe_keyids")) {
++	if (!TWFunc::Path_Exists("/sbin/decrypt.sh")) {
 +		LOGINFO("WIP129: fbe_backup_pin_check: decrypt.sh not ready yet\n");
++		gui_changePage("backup_run");
 +		return 0;
 +	}
-+	DataManager::SetValue("tw_fbe_pin", "");
-+	DataManager::SetValue("tw_password_fail", 0);
 +	if (TWFunc::Path_Exists("/tmp/.ce_sp")) {
 +		LOGINFO("WIP126: fbe_backup_pin_check: CE already unlocked -> backup\n");
-+		gui_changePage("backup");
++		gui_changePage("backup_run");
 +		return 0;
 +	}
-+	bool has_credential = false;
-+	DIR* dir = opendir("/data/system_de/0/spblob");
-+	if (dir) {
-+		struct dirent* ent;
-+		while ((ent = readdir(dir)) != NULL) {
-+			size_t len = strlen(ent->d_name);
-+			if (len > 4 && strcmp(ent->d_name + len - 4, ".pwd") == 0) {
-+				has_credential = true;
-+				break;
-+			}
++	bool cred_present = false;
++	{
++		string result;
++		TWFunc::Exec_Cmd("ls /data/system_ce/0/spblob/*.pwd 2>/dev/null | head -n1", result, false);
++		if (!result.empty()) {
++			cred_present = true;
 +		}
-+		closedir(dir);
 +	}
-+	if (has_credential) {
++	if (cred_present) {
++		DataManager::SetValue("tw_fbe_pin", "");
++		DataManager::SetValue("tw_password_fail", 0);
++		DataManager::SetValue("tw_fbe_pin_mode", 1);
 +		LOGINFO("WIP126: fbe_backup_pin_check: credential present -> PIN page\n");
-+		DataManager::SetValue("tw_fbe_pin_mode", 1); // 1 = backup destination
 +		gui_changePage("fbe_backup_pin");
 +	} else {
 +		LOGINFO("WIP126: fbe_backup_pin_check: no credential -> backup\n");
-+		gui_changePage("backup");
++		gui_changePage("backup_run");
 +	}
 +	return 0;
 +}
 +
 +// WIP126: Validate the PIN/password from fbe_restore_pin or fbe_backup_pin against the
-+// LIVE /data via the password helper (same path as the Decrypt Data button). Instant
-+// verdict: rc==0 -> route by tw_fbe_pin_mode (0 restore_run, 1 backup); rc!=0 -> set
-+// tw_password_fail=1 and stay on the page (error label shows). Scrub the PIN afterwards.
++// device's lockscreen credential. If valid, route to restore/backup depending on mode.
++// If invalid, stay on the PIN page with an error message.
 +int GUIAction::fbe_pin_validate(std::string arg __unused)
 +{
 +	string pin;
 +	DataManager::GetValue("tw_fbe_pin", pin);
++	if (pin.empty()) {
++		LOGINFO("WIP139: fbe_pin_validate: empty PIN -> error\n");
++		DataManager::SetValue("tw_password_fail", 1);
++		DataManager::SetValue("tw_fbe_pin_display", "");
++		return 0;
++	}
 +	string escaped;
 +	for (size_t i = 0; i < pin.size(); ++i) {
 +		if (pin[i] == '\'') escaped += "'\\''";
@@ -128,75 +128,79 @@ diff -Naur base/gui/action.cpp modified/gui/action.cpp
 +	int rc = TWFunc::Exec_Cmd("/system/bin/password '" + escaped + "'", true);
 +	if (rc == 0) {
 +		DataManager::SetValue("tw_password_fail", 0);
-+		DataManager::SetValue(TW_IS_DECRYPTED, 1); // hide Decrypt Data button
++		DataManager::SetValue(TW_IS_DECRYPTED, 1);
 +		int mode = 0;
 +		DataManager::GetValue("tw_fbe_pin_mode", mode);
 +		LOGINFO("WIP126: fbe_pin_validate: OK (mode=%d)\n", mode);
 +		if (!pin.empty()) pin.assign(pin.size(), '*');
 +		DataManager::SetValue("tw_fbe_pin", "");
++		// WIP139: fix inverted mode routing (mode=0 is restore, mode=1 is backup)
 +		if (mode == 0)
-+			gui_changePage("backup");
-+		else
 +			gui_changePage("restore");
++		else
++			gui_changePage("backup");
 +	} else {
 +		DataManager::SetValue("tw_password_fail", 1);
 +		LOGINFO("WIP126: fbe_pin_validate: WRONG PIN (rc=%d) -> stay\n", rc);
 +		if (!pin.empty()) pin.assign(pin.size(), '*');
 +		DataManager::SetValue("tw_fbe_pin", "");
-+		DataManager::SetValue("tw_fbe_pin_display", ""); // WIP129: reset cursor field
++		DataManager::SetValue("tw_fbe_pin_display", "");
 +	}
 +	return 0;
 +}
-
++
  int GUIAction::repair(std::string arg __unused)
  {
-diff -Naur base/gui/objects.hpp modified/gui/objects.hpp
---- base/gui/objects.hpp	2026-07-23 23:15:25.014009485 +0300
-+++ modified/gui/objects.hpp	2026-07-23 23:16:37.978004927 +0300
-@@ -334,6 +334,9 @@
- 	int setbrightness(std::string arg);
- 	int checkforapp(std::string arg);
- 	int unmapsuperdevices(std::string arg);
+ 	int op_status = 0;
+diff --git a/gui/objects.hpp b/gui/objects.hpp
+index 7aa201c..7c171cf 100644
+--- a/gui/objects.hpp
++++ b/gui/objects.hpp
+@@ -360,6 +360,9 @@ protected:
+ 	int fixsu(std::string arg);
+ 	int decrypt_backup(std::string arg);
+ 	int fbe_pin_check(std::string arg);
 +	int fbe_restore_pin_check(std::string arg);
-+	int fbe_backup_pin_check(std::string arg); // WIP126: backup PIN prompt
-+	int fbe_pin_validate(std::string arg);     // WIP126: instant PIN validation
- 	int check_lockscreen_cred(std::string arg); // .pwd-based button visibility
- 	int removedynamicgroups(std:: string arg);
-
-diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait.xml
---- base/gui/theme/common/portrait.xml	2026-07-23 23:15:25.014009485 +0300
-+++ modified/gui/theme/common/portrait.xml	2026-07-23 23:37:38.649896327 +0300
-@@ -216,13 +216,15 @@
- 			<button style="main_button">
- 				<placement x="%indent%" y="%row8_y%"/>
- 				<text>{@backup_btn=Backup}</text>
--				<action function="page">backup</action>
-+				<actions>
-+					<action function="fbe_backup_pin_check"></action>
-+				</actions>
- 			</button>
-
- 			<button style="main_button">
- 				<placement x="%center_x%" y="%row8_y%"/>
- 				<text>{@restore_btn=Restore}</text>
--				<action function="page">restore</action>
-+				<action function="fbe_restore_pin_check"></action>
- 			</button>
-
- 			<button style="main_button">
-@@ -4975,7 +4977,7 @@
++	int fbe_backup_pin_check(std::string arg);
++	int fbe_pin_validate(std::string arg);
+ 	int repair(std::string arg);
+ 	int resize(std::string arg);
+ 	int changefilesystem(std::string arg);
+diff --git a/gui/theme/common/portrait.xml b/gui/theme/common/portrait.xml
+index 744e385..19028e6 100644
+--- a/gui/theme/common/portrait.xml
++++ b/gui/theme/common/portrait.xml
+@@ -1724,7 +1724,7 @@
+ 
+ 			<slider>
+ 				<text>{@swipe_backup=Swipe to Backup}</text>
+-				<action function="page">backup_run</action>
++				<action function="fbe_backup_pin_check"/>
+ 			</slider>
+ 
+ 			<action>
+@@ -2664,7 +2664,7 @@
+ 
+ 			<slider>
+ 				<text>{@swipe_restore=Swipe to Restore}</text>
+-				<action function="fbe_pin_check"/>
++				<action function="fbe_restore_pin_check"/>
+ 			</slider>
+ 
+ 			<action>
+@@ -4975,7 +4975,7 @@
  				<text>%tw_fbe_pin_display%</text>
  				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
  				<restrict minlen="1" maxlen="254"/>
 -				<action function="page">restore_run</action>
-+				<action function="fbe_pin_validate"></action>
++				<action function="page">fbe_pin_validate</action>
  			</input>
-
+ 
  			<fill color="%accent_color%">
-@@ -4987,12 +4989,18 @@
+@@ -4987,16 +4987,68 @@
  				<text>Type the PIN/password used on the backed-up device, then press Enter (or Start).</text>
  			</text>
-
+ 
 +			<text style="text_m_fail">
 +				<conditions><condition var1="tw_password_fail" var2="1"/></conditions>
 +				<placement x="%center_x%" y="%row6_y%" placement="5"/>
@@ -208,13 +212,12 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
  				<text>Cancel</text>
 -				<action function="page">restore_select</action>
 +				<action function="page">main</action>
- 			</button>
-
- 			<button style="main_button_half_height">
- 				<placement x="%center_x%" y="%row10_y%"/>
- 				<text>Start</text>
--				<action function="page">restore_run</action>
-+				<action function="fbe_pin_validate"></action>
++			</button>
++
++			<button style="main_button_half_height">
++				<placement x="%center_x%" y="%row10_y%"/>
++				<text>Start</text>
++				<action function="page">fbe_pin_validate</action>
 +			</button>
 +
 +			<template name="keyboardtemplate"/>
@@ -229,13 +232,8 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
 +			</text>
 +
 +			<text style="text_m">
-+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
-+				<text>Lockscreen Credential</text>
-+			</text>
-+
-+			<text style="text_m_accent">
-+				<placement x="%center_x%" y="%row2_y%" placement="5"/>
-+				<text>Your data is locked by a lockscreen PIN/password. Enter it to include app data in the backup:</text>
++				<placement x="%indent%" y="%row1_y%"/>
++				<text>This backup requires your lockscreen PIN/password to encrypt app data. Enter it below, then press Enter (or Start).</text>
 +			</text>
 +
 +			<input>
@@ -243,17 +241,12 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
 +				<text>%tw_fbe_pin_display%</text>
 +				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
 +				<restrict minlen="1" maxlen="254"/>
-+				<action function="fbe_pin_validate"></action>
++				<action function="page">fbe_pin_validate</action>
 +			</input>
 +
 +			<fill color="%accent_color%">
 +				<placement x="%indent%" y="row4a_y" w="%content_width%" h="input_line_width" placement="1"/>
 +			</fill>
-+
-+			<text style="text_m">
-+				<placement x="%indent%" y="%row5_y%"/>
-+				<text>Type the PIN/password of this device, then press Enter (or Start).</text>
-+			</text>
 +
 +			<text style="text_m_fail">
 +				<conditions><condition var1="tw_password_fail" var2="1"/></conditions>
@@ -265,12 +258,16 @@ diff -Naur base/gui/theme/common/portrait.xml modified/gui/theme/common/portrait
 +				<placement x="%indent%" y="%row10_y%"/>
 +				<text>Cancel</text>
 +				<action function="page">main</action>
-+			</button>
-+
-+			<button style="main_button_half_height">
-+				<placement x="%center_x%" y="%row10_y%"/>
-+				<text>Start</text>
-+				<action function="fbe_pin_validate"></action>
  			</button>
-
+ 
+ 			<button style="main_button_half_height">
+ 				<placement x="%center_x%" y="%row10_y%"/>
+ 				<text>Start</text>
+-				<action function="page">restore_run</action>
++				<action function="page">fbe_pin_validate</action>
+ 			</button>
+ 
  			<template name="keyboardtemplate"/>
+-- 
+2.54.0.windows.1
+
