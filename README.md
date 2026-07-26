@@ -63,7 +63,7 @@ Medium checks
 - [✔] F2FS/EXT4 Support, exFAT/NTFS where supported
 - [✔] all important partitions listed in mount/backup lists
 - [✔] backup/restore to/from external (USB-OTG) storage
-- [✖] decrypt /data
+- [✔] decrypt /data
 - [✔] Correct date
 - [✔] USB-OTG (flash drive)
 
