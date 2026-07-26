@@ -72,7 +72,7 @@ Minor checks
 - [✔] MTP export
 - [✔] reboot to bootloader
 - [✔] reboot to recovery
-- [✔] poweroff
+- [✔] power off
 - [✔] battery level
 - [✔] temperature
 - [✔] encrypted backups
@@ -82,7 +82,7 @@ Minor checks
 - [✖] vibrate
 - [✔] screenshot
 - [✖] partition SD card (No SD card slot)
-- [✔] Fastbootd
+- [✔] Fastboot
 
 
 ## Clone manifest twrp-12.1 
