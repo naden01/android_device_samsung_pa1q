@@ -15,12 +15,12 @@
 # in a repo tree). On Jenkins no revert is needed: every job is a fresh clone.
 
 # Resolve the Android build top. vendorsetup.sh lives at
-# <TOP>/device/samsung/pa1q/vendorsetup.sh, so this script is three dirs deep + /patches.
+# <TOP>/device/samsung/pa3q/vendorsetup.sh, so this script is three dirs deep + /patches.
 _SELF="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 if [ -n "$ANDROID_BUILD_TOP" ] && [ -d "$ANDROID_BUILD_TOP/bootable/recovery" ]; then
     TOP="$ANDROID_BUILD_TOP"
 else
-    # patches dir is <TOP>/device/samsung/pa1q/patches -> go up 4
+    # patches dir is <TOP>/device/samsung/pa3q/patches -> go up 4
     TOP="$(cd "$_SELF/../../../.." && pwd)"
 fi
 REC="$TOP/bootable/recovery"
