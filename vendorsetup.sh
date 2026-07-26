@@ -42,6 +42,10 @@ PATCH_SUPER_SIZE="$DEVICE_PATH/patches/0014-super-size.patch"
 # super sub-partition (dm-N) or super itself. Clears the dm read-only flag for the single
 # write (BLKROSET) after a size-guard (refuse if image > extent). Backup unaffected (reads).
 PATCH_SUPER_FORCE_WRITABLE="$DEVICE_PATH/patches/0015-super-force-writable.patch"
+# WIP153: reset the text-input cursor to the left edge when the bound variable is cleared
+# externally (e.g. fbe_pin_validate wipes tw_fbe_pin after a wrong PIN). Fixes the cursor
+# staying stuck at the right over an empty field. Core GUIInput widget - affects all inputs.
+PATCH_INPUT_CURSOR="$DEVICE_PATH/patches/0016-input-cursor-reset.patch"
 
 apply_patch() {
     local patch="$1"
@@ -110,6 +114,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_VENDOR_TEARDOWN" "$TWRP_ROOT/partition.cpp" "WIP134"
     apply_patch "$PATCH_SUPER_SIZE" "$TWRP_ROOT/partitionmanager.cpp" "WIP145"
     apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP149"
+    apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
