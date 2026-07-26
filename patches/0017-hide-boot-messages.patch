@@ -1,0 +1,11 @@
+--- a/twrp-functions.cpp	2026-07-26 08:45:20.620708300 +0300
++++ b/twrp-functions.cpp	2026-07-26 08:45:21.057371900 +0300
+@@ -668,7 +668,7 @@
+ 		// gui_msg(Msg("run_script=Running {1} script...")(display_name));
+ 		chmod(script_file, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
+ 		TWFunc::Exec_Cmd(script_file);
+-		gui_msg("done=Done.");
++		// gui_msg("done=Done.");
+ 	}
+ }
+ 

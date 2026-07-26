@@ -46,6 +46,11 @@ PATCH_SUPER_FORCE_WRITABLE="$DEVICE_PATH/patches/0015-super-force-writable.patch
 # externally (e.g. fbe_pin_validate wipes tw_fbe_pin after a wrong PIN). Fixes the cursor
 # staying stuck at the right over an empty field. Core GUIInput widget - affects all inputs.
 PATCH_INPUT_CURSOR="$DEVICE_PATH/patches/0016-input-cursor-reset.patch"
+# WIP155: hide boot messages from TWRP GUI (clean startup screen). Comments out all gui_msg/
+# gui_warn calls that print text during boot: "Updating partition details", "Unable to mount
+# storage", "Running boot script", "Full SELinux support", "MTP Crashed". Messages still logged
+# to /tmp/recovery.log. Result: clean startup with only logo and status bar visible.
+PATCH_HIDE_BOOT_MSG="$DEVICE_PATH/patches/0017-hide-boot-messages.patch"
 
 apply_patch() {
     local patch="$1"
@@ -115,6 +120,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_SUPER_SIZE" "$TWRP_ROOT/partitionmanager.cpp" "WIP145"
     apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP149"
     apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
+    apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "WIP155"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
