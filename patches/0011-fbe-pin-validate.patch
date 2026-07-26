@@ -17,14 +17,14 @@
 +
 +// WIP126/143: Restore button on main2 -> check whether the live /data is protected by a
 +// lockscreen credential. Runs in the CALLER thread so gui_changePage is safe. If decrypt.sh
-+// has not finished yet (/tmp/.fbe_keyids absent) do nothing (button inert until ready). If CE
++// has not finished yet (/tmp/.decrypt_done absent) do nothing (button inert until ready). If CE
 +// is already unlocked (/tmp/.ce_sp) skip straight to the restore folder picker. Else, if the
 +// live spblob carries a .pwd protector, CE is locked -> prompt for the PIN (mode=0=restore).
 +// Biometric-only / no-lock -> straight to restore.
 +int GUIAction::fbe_restore_pin_check(std::string arg __unused)
 +{
-+	if (!TWFunc::Path_Exists("/tmp/.fbe_keyids")) {
-+		LOGINFO("WIP129: fbe_restore_pin_check: fbe_keyids not ready yet\n");
++	if (!TWFunc::Path_Exists("/tmp/.decrypt_done")) {
++		LOGINFO("WIP129: fbe_restore_pin_check: decrypt not done yet\n");
 +		return 0;
 +	}
 +	DataManager::SetValue("tw_fbe_pin", "");
@@ -71,8 +71,8 @@
 +// the fbe_backup_pin page (locked) or the backup partition picker (unlocked/no credential).
 +int GUIAction::fbe_backup_pin_check(std::string arg __unused)
 +{
-+	if (!TWFunc::Path_Exists("/tmp/.fbe_keyids")) {
-+		LOGINFO("WIP129: fbe_backup_pin_check: fbe_keyids not ready yet\n");
++	if (!TWFunc::Path_Exists("/tmp/.decrypt_done")) {
++		LOGINFO("WIP129: fbe_backup_pin_check: decrypt not done yet\n");
 +		return 0;
 +	}
 +	DataManager::SetValue("tw_fbe_pin", "");
