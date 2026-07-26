@@ -7,7 +7,7 @@
 # line numbers - this is the part that used to fail with `patch -R`).
 #
 # Run this AFTER your build (success or failure) to leave the TWRP source tree clean:
-#   bash device/samsung/pa1q/patches/revert-patches.sh
+#   bash device/samsung/psq/patches/revert-patches.sh
 #
 # On Jenkins this is NOT needed - each job starts from a fresh clone.
 

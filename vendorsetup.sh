@@ -10,7 +10,7 @@ export OF_USE_LEGACY_BATTERY_SERVICES=1
 export OF_SCREEN_H=3120
 export FOX_MAINTAINER_PATCH_VERSION="0"
 
-DEVICE_PATH="device/samsung/pa1q"
+DEVICE_PATH="device/samsung/psq"
 TWRP_ROOT="bootable/recovery"
 
 # WIP78: fast freeze-free /data size refresh
