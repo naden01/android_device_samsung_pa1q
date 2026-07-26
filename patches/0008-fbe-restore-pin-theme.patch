@@ -1,14 +1,5 @@
 --- a/gui/theme/common/portrait.xml
 +++ b/gui/theme/common/portrait.xml
-@@ -2661,7 +2661,7 @@
- 
- 			<slider>
- 				<text>{@swipe_restore=Swipe to Restore}</text>
--				<action function="page">restore_run</action>
-+				<action function="fbe_pin_check"/>
- 			</slider>
- 
- 			<action>
 @@ -4946,6 +4946,56 @@
  			</button>
  
