@@ -53,6 +53,7 @@ for patch in "$_SELF"/*.patch; do
         0012-frp-exclude.patch)          marker="frp_secret:partition.cpp" ;;
         0013-vendor-mount-unmount.patch) marker="WIP134:partition.cpp" ;;
         0015-super-force-writable.patch) marker="WIP149:partitionmanager.cpp" ;;
+        0016-input-cursor-reset.patch)    marker="WIP153:gui/input.cpp" ;;
         0014-super-size.patch)           marker="WIP145:partitionmanager.cpp" ;;
         *)                              marker="" ;;
     esac

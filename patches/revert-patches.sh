@@ -35,7 +35,7 @@ REC="$TOP/bootable/recovery"
 #   0013-vendor-mount-unmount.patch     -> partition.cpp
 #   0014-super-size.patch                -> partitionmanager.cpp
 #   0015-super-force-writable.patch      -> partition.cpp
-FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml"
+FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml gui/input.cpp"
 
 if [ ! -d "$REC" ]; then
     echo "pa1q-revert: bootable/recovery not found at '$REC'"
