@@ -75,28 +75,40 @@ apply_patch() {
     fi
 
     echo "Applying patch: $patch -> $target"
-    if patch -p1 -d "$TWRP_ROOT" -N --dry-run < "$patch" >/dev/null 2>&1; then
-        patch -p1 -d "$TWRP_ROOT" -N < "$patch"
-        if [ $? -eq 0 ]; then
-            echo "  ✓ Applied successfully"
+    local dryrun_output
+    dryrun_output=$(patch -p1 -d "$TWRP_ROOT" -N --dry-run < "$patch" 2>&1)
+    local dryrun_rc=$?
+
+    # Check if patch is already applied (exit code 1 + "Reversed" in output)
+    if [ $dryrun_rc -ne 0 ]; then
+        if echo "$dryrun_output" | grep -q "Reversed (or previously applied) patch detected"; then
+            echo "✓ Patch already applied: $patch"
+            return
         else
-            echo "❌ FATAL: Patch application failed: $patch"
+            # Real conflict
+            echo "❌ FATAL: Patch dry-run failed: $patch"
             echo "========================================"
-            echo "  BUILD FAILED: Critical patch error"
+            echo "  BUILD FAILED: Patch conflicts detected"
+            echo "  File: $target"
             echo "  This build MUST NOT be released!"
             echo "========================================"
+            echo ""
+            echo "Detailed error:"
+            echo "$dryrun_output" | head -20
             exit 1
         fi
+    fi
+
+    # Dry-run passed, apply the patch
+    patch -p1 -d "$TWRP_ROOT" -N < "$patch"
+    if [ $? -eq 0 ]; then
+        echo "  ✓ Applied successfully"
     else
-        echo "❌ FATAL: Patch dry-run failed: $patch"
+        echo "❌ FATAL: Patch application failed: $patch"
         echo "========================================"
-        echo "  BUILD FAILED: Patch conflicts detected"
-        echo "  File: $target"
+        echo "  BUILD FAILED: Critical patch error"
         echo "  This build MUST NOT be released!"
         echo "========================================"
-        echo ""
-        echo "Detailed error:"
-        patch -p1 -d "$TWRP_ROOT" -N --dry-run < "$patch" 2>&1 | head -20
         exit 1
     fi
 }
@@ -112,7 +124,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_STAGED_RESTORE" "$TWRP_ROOT/partition.cpp" "WIP110"
     apply_patch "$PATCH_FBE_PIN" "$TWRP_ROOT/partition.cpp" "WIP112"
     apply_patch "$PATCH_FBE_PIN_THEME" "$TWRP_ROOT/gui/theme/common/portrait.xml" "fbe_restore_pin"
-    apply_patch "$PATCH_DECRYPT_HELPER" "$TWRP_ROOT/gui/action.cpp" "WIP119:decrypt-data-helper"
+    apply_patch "$PATCH_DECRYPT_HELPER" "$TWRP_ROOT/gui/action.cpp" "password-script instead of stock A12.1"
     apply_patch "$PATCH_DECRYPT_BUTTON" "$TWRP_ROOT/gui/action.cpp" "check_lockscreen_cred"
     apply_patch "$PATCH_FBE_PIN_VALIDATE" "$TWRP_ROOT/gui/action.cpp" "fbe_backup_pin_check"
     apply_patch "$PATCH_FRP_EXCLUDE" "$TWRP_ROOT/partition.cpp" "frp_secret"
@@ -120,7 +132,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_SUPER_SIZE" "$TWRP_ROOT/partitionmanager.cpp" "WIP145"
     apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP149"
     apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
-    apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "WIP155"
+    apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
