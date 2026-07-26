@@ -200,15 +200,20 @@ echo "mapper wait ~$((n * 500))ms (system_a=$([ -e /dev/block/mapper/system_a ] 
 sleep 1
 
 # 1. mount the real A16 system + vendor (idempotent)
+# WIP154: removed "-t erofs" so the kernel auto-detects erofs, ext4, or f2fs. This unbreaks TWRP
+# on custom ROMs (Dr.Ketan, Beyond ROM) where partitions are converted to ext4/f2fs rw via CRB
+# Kitchen or on-device flashable zips - previously TWRP hung on splash screen when vendor was
+# ext4 because the hardcoded "-t erofs" failed and qseecomd couldn't start. Stock Samsung (erofs
+# ro) still works normally.
 if [ ! -e "$LK" ]; then
     mkdir -p "$SYS" 2>/dev/null
     for s in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
-        [ -e "$s" ] && mount -t erofs -o ro "$s" "$SYS" 2>/dev/null && break
+        [ -e "$s" ] && mount -o ro "$s" "$SYS" 2>/dev/null && break
     done
 fi
 if [ ! -e /vendor/bin/qseecomd ]; then
     for v in /dev/block/mapper/vendor_a /dev/block/mapper/vendor_b /dev/block/mapper/vendor; do
-        [ -e "$v" ] && mount -t erofs -o ro "$v" /vendor 2>/dev/null && break
+        [ -e "$v" ] && mount -o ro "$v" /vendor 2>/dev/null && break
     done
 fi
 # Re-mount the modem/firmware partition over the A16 /vendor. init mounts apnhlos at
@@ -832,7 +837,7 @@ if ! grep -qE " /system_root " /proc/mounts 2>/dev/null; then
     mkdir -p /system_root 2>/dev/null
     _mounted=n
     for s in /dev/block/mapper/system_a /dev/block/mapper/system_b /dev/block/mapper/system; do
-        [ -e "$s" ] && mount -t erofs -o ro "$s" /system_root 2>/dev/null && { _mounted=y; break; }
+        [ -e "$s" ] && mount -o ro "$s" /system_root 2>/dev/null && { _mounted=y; break; }
     done
     # Fallback: bind the already-mounted /decrypt (same erofs) onto /system_root.
     [ "$_mounted" = "n" ] && [ -e /decrypt/system ] && mount --bind /decrypt /system_root 2>/dev/null && _mounted=y
