@@ -839,4 +839,15 @@ if ! grep -qE " /system_root " /proc/mounts 2>/dev/null; then
     grep -qE " /system_root " /proc/mounts 2>/dev/null && echo "/system_root mounted (display)" \
         || echo "/system_root mount skipped"
 fi
+# WIP152: readiness marker for the Backup/Restore buttons (patch 0011). This is our OWN
+# flag, created ONLY here, at the very end of decrypt.sh - it means "the decrypt script
+# finished" (regardless of whether de_keyinstall ran). fbe_backup_pin_check /
+# fbe_restore_pin_check wait for it: absent -> buttons inert (decrypt still starting up);
+# present -> buttons active and decide by the live spblob. We deliberately do NOT reuse
+# /tmp/.fbe_keyids for this - that file is written by de_keyinstall ONLY when there are keys
+# to install, so after a /data format (no key material) it never appears and the buttons
+# stayed dead forever. This marker always appears once the script completes, in every case
+# (normal decrypt AND formatted /data). Separate filename -> never races/overwrites
+# .fbe_keyids. touch is idempotent (empty flag) so re-running decrypt.sh is harmless.
+touch /tmp/.decrypt_done
 echo "===== decrypt done ====="
