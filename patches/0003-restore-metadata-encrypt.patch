@@ -18,7 +18,7 @@
 +		string hook = "/system/bin/pre_restore_data.sh";
 +		if (TWFunc::Path_Exists(hook)) {
 +			LOGINFO("Running pre-restore hook for metadata-encrypted /data: %s\n", hook.c_str());
-+			gui_msg(Msg("Preparing /data for restore (setting up encryption layer)..."));
++			gui_print("Preparing /data for restore (setting up encryption layer)...\n");
 +			string result;
 +			int ret = TWFunc::Exec_Cmd(hook, result, true);  // capture output, show in log
 +			if (ret != 0) {
