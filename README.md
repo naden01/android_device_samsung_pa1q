@@ -101,5 +101,22 @@ git clone https://github.com/naden01/android_device_samsung_pa1q.git -b S25Edge 
 export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_psq-eng; mka vendorbootimage
 ```
 
+## Patch Management
+
+This device tree includes custom patches for TWRP functionality (FBE decrypt, staged restore, UI improvements).
+
+### Apply patches and build
+Patches are automatically applied during the build process:
+```bash
+export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_psq-eng; mka vendorbootimage
+```
+
+### Revert all patches
+```bash
+device/samsung/psq/patches/revert-patches.sh
+```
+
+**Note:** Patches are idempotent—building multiple times is safe. The build system only applies unapplied patches.
+
 
 
