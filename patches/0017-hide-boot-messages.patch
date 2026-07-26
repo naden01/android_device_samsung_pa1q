@@ -28,7 +28,7 @@
  			DataManager::SetValue(TW_STORAGE_FREE_SIZE, (int)(FreeStorage->Free / 1048576LLU));
 --- a/twrp-functions.cpp	2026-07-26 07:48:47.675504600 +0300
 +++ b/twrp-functions.cpp	2026-07-26 07:48:48.133402400 +0300
-@@ -665,7 +665,7 @@
+@@ -665,10 +665,10 @@
  	// Check for and run startup script if script exists
  	struct stat st;
  	if (stat(script_file, &st) == 0) {
@@ -36,7 +36,11 @@
 +		// gui_msg(Msg("run_script=Running {1} script...")(display_name));
  		chmod(script_file, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);
  		TWFunc::Exec_Cmd(script_file);
- 		gui_msg("done=Done.");
+-		gui_msg("done=Done.");
++		// gui_msg("done=Done.");
+ 	}
+ }
+
 @@ -1305,7 +1305,7 @@
  			gui_warn("no_kernel_selinux=Kernel does not have support for reading SELinux contexts.");
  		} else {
