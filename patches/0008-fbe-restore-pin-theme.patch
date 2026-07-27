@@ -1,6 +1,20 @@
 --- a/gui/theme/common/portrait.xml
 +++ b/gui/theme/common/portrait.xml
-@@ -4946,6 +4946,56 @@
+@@ -2360,13 +2360,6 @@
+ 			</button>
+ 
+ 			<action>
+-				<condition var1="tw_crypto_pwtype" op="!=" var2="0"/>
+-				<actions>
+-					<action function="page">restore_keymaster</action>
+-				</actions>
+-			</action>
+-
+-			<action>
+ 				<condition var1="tw_restore" op="modified"/>
+ 				<actions>
+ 					<action function="readBackup"/>
+@@ -4946,6 +4939,56 @@
  			</button>
  
  			<template name="keyboardtemplate"/>
