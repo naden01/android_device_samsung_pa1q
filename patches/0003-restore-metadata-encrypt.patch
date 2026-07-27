@@ -1,6 +1,6 @@
 --- a/partition.cpp
 +++ b/partition.cpp
-@@ -2986,6 +2986,40 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
+@@ -2986,6 +2986,39 @@ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
  	// Remount as read/write as needed so we can restore the backup
  	if (!ReMount_RW(true))
  		return false;
@@ -18,7 +18,6 @@
 +		string hook = "/system/bin/pre_restore_data.sh";
 +		if (TWFunc::Path_Exists(hook)) {
 +			LOGINFO("Running pre-restore hook for metadata-encrypted /data: %s\n", hook.c_str());
-+			gui_print("Preparing /data for restore (setting up encryption layer)...\n");
 +			string result;
 +			int ret = TWFunc::Exec_Cmd(hook, result, true);  // capture output, show in log
 +			if (ret != 0) {
