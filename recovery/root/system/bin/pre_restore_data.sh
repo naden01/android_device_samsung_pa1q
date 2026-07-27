@@ -14,6 +14,26 @@ LOG=/tmp/pre_restore_data.log
 exec >>"$LOG" 2>&1
 echo "===== pre_restore_data start $(date) ====="
 
+# WIP163: wipe the FRP partition before restore. After restoring an old /data, the
+# frp partition holds a stale token that disagrees with the restored lockscreen
+# credential state -> Settings crashes when trying to change/remove the lock
+# ("Cannot change credential while FRP is active"). The frp block device is
+# SEPARATE from /data and is NOT touched by the /data format+restore, so it keeps
+# the old state across the whole restore. Zeroing it forces Android to regenerate
+# frp (and the /data/system/frp_secret file, which is absent post-restore: it is
+# formatted away by Step 5b and excluded from the backup by patch 0012) fresh, in
+# sync with the restored /data on the next boot. Safe: TWRP only runs on unlocked
+# bootloaders where FRP anti-theft has no value, and Android rebuilds frp on boot.
+FRP_DEV=/dev/block/by-name/frp
+if [ -e "$FRP_DEV" ]; then
+    echo "WIP163: wiping FRP partition ($FRP_DEV) so Android regenerates it in sync with restored /data"
+    dd if=/dev/zero of="$FRP_DEV" bs=512 2>&1 | tail -2
+    sync
+    echo "WIP163: FRP partition wiped"
+else
+    echo "WIP163: FRP partition not found at $FRP_DEV - skipping (nothing to wipe)"
+fi
+
 # Is /data mounted on the dm-default-key device? (re-run / idempotency check)
 # BUG FIX: the old check `grep " /data .*mapper/userdata"` NEVER matched, for two reasons:
 #   1) /proc/mounts field order is `DEVICE MOUNTPOINT FSTYPE`, so the device comes BEFORE
