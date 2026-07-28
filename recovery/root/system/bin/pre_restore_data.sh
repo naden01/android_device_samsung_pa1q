@@ -132,14 +132,28 @@ if [ ! -e "$KDIR/keymaster_key_blob" ]; then
             # Detect compression by magic (1f 8b = gzip). This device's backup_type 0 is
             # UNCOMPRESSED (plain tar), but handle gzip too for safety. Extract each split
             # part in sequence (win, then win000/001/... if present).
+            # Archive paths are ABSOLUTE from the partition root (/aconfig/, /vold/..., where
+            # "/" == the /metadata mount). toybox tar REFUSES to write an absolute path outside
+            # cwd - both `-C /metadata` and `cd /metadata; tar -x` fail with "not under ...".
+            # There is no --strip / -P in toybox tar, and no busybox/bsdtar on the device. So we
+            # walk the member list and extract each file to stdout (-O, which is NOT blocked by
+            # the absolute-path guard) and write it ourselves under /metadata, recreating dirs.
+            # Verified live: 243/243 files, all keymaster_key_blob (540B) restored, no symlinks.
             extract_one() {
-                _f="$1"
+                _f="$1"; _src="$_f"
                 _magic=$(dd if="$_f" bs=2 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
                 if [ "$_magic" = "1f8b" ]; then
-                    pigz -d -c "$_f" 2>/dev/null | tar -x -C /metadata 2>&1 | grep -v "Removing leading" | head -3
-                else
-                    tar -x -f "$_f" -C /metadata 2>&1 | grep -v "Removing leading" | head -3
+                    pigz -d -c "$_f" > /tmp/.meta_plain.tar 2>/dev/null && _src=/tmp/.meta_plain.tar
                 fi
+                ( cd /metadata && tar -tf "$_src" 2>/dev/null | while read m; do
+                    rel="${m#/}"
+                    case "$m" in
+                        */) mkdir -p "./$rel" ;;
+                        *)  mkdir -p "./$(dirname "$rel")"
+                            tar -x -f "$_src" -O "$m" > "./$rel" 2>/dev/null ;;
+                    esac
+                done )
+                rm -f /tmp/.meta_plain.tar
             }
             if echo "$META_BACKUP" | grep -q '\.win$'; then
                 extract_one "$META_BACKUP"
