@@ -1,6 +1,6 @@
 --- a/partition.cpp
 +++ b/partition.cpp
-@@ -2961,6 +2961,103 @@
+@@ -2961,6 +2961,105 @@
  	return Restore_Size;
  }
  
@@ -25,10 +25,12 @@
 +	}
 +	// 1) Bring up dm-default-key + DE keys (idempotent; safe to re-run). This mounts /data on
 +	//    the dm-default-key device so the extracted spblob lands on the real fscrypt mount.
++	//    Pass the backup folder as $1 so pre_restore_data.sh can find metadata backup if needed.
 +	string hook = "/system/bin/pre_restore_data.sh";
 +	if (TWFunc::Path_Exists(hook)) {
++		string cmd = hook + " '" + part_settings->Backup_Folder + "'";
 +		string result;
-+		int ret = TWFunc::Exec_Cmd(hook, result, true);
++		int ret = TWFunc::Exec_Cmd(cmd, result, true);
 +		if (ret != 0) {
 +			LOGERR("WIP165: pre_restore_data.sh failed (exit %d):\n%s\n", ret, result.c_str());
 +			return -1;

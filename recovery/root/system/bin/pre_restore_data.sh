@@ -14,6 +14,14 @@ LOG=/tmp/pre_restore_data.log
 exec >>"$LOG" 2>&1
 echo "===== pre_restore_data start $(date) ====="
 
+# WIP165: accept backup folder as $1 (from Prep_Restore_CE early call), fallback to log parse.
+# Normal Restore_Tar flow prints "Restore folder:" to recovery.log before calling this hook;
+# the new prep-before-restore flow passes the path as argument so the hook can run earlier.
+if [ -n "$1" ]; then
+    BACKUP_FOLDER_ARG="$1"
+    echo "backup folder passed as argument: $BACKUP_FOLDER_ARG"
+fi
+
 # WIP163: wipe the FRP partition before restore. After restoring an old /data, the
 # frp partition holds a stale token that disagrees with the restored lockscreen
 # credential state -> Settings crashes when trying to change/remove the lock
@@ -91,8 +99,12 @@ KDIR=/metadata/vold/metadata_encryption/key
 if [ ! -e "$KDIR/keymaster_key_blob" ]; then
     echo "metadata encryption key missing at $KDIR/keymaster_key_blob"
 
-    # Parse backup folder from recent recovery.log "Restore folder:" line
-    BACKUP_FOLDER=$(grep "Restore folder:" /tmp/recovery.log 2>/dev/null | tail -1 | sed 's/.*Restore folder: *//' | tr -d "'")
+    # Parse backup folder from argument (WIP165, prep flow) or recovery.log (normal Restore_Tar)
+    if [ -n "$BACKUP_FOLDER_ARG" ]; then
+        BACKUP_FOLDER="$BACKUP_FOLDER_ARG"
+    else
+        BACKUP_FOLDER=$(grep "Restore folder:" /tmp/recovery.log 2>/dev/null | tail -1 | sed 's/.*Restore folder: *//' | tr -d "'")
+    fi
 
     if [ -n "$BACKUP_FOLDER" ]; then
         echo "Searching for metadata backup in: $BACKUP_FOLDER"
