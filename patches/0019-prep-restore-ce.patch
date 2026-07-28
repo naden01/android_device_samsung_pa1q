@@ -1,0 +1,159 @@
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -2961,6 +2961,103 @@
+ 	return Restore_Size;
+ }
+ 
++
++// WIP165 (Plan B+): prepare the CE layer BEFORE the destructive restore, so the PIN can be
++// validated up-front (in the GUI caller thread) instead of failing mid-restore with ENOKEY.
++// Mirrors the staged preload of Restore_Tar() but WITHOUT wiping /data: it brings the A16
++// decrypt stack up (pre_restore_data.sh builds dm-default-key + installs the DE keys), then
++// uses twrpTar::extractGlob to pull ONLY the key material + spblob + weaver marker out of the
++// backup archive onto the LIVE /data (any archive type: single/split/compressed/encrypted,
++// because extractGlob reuses the native tar open path). With the marker present it is then
++// safe to start decrypt-hermes (IWeaver) - it will NOT wipe the eSE. After this returns the
++// live /data holds locksettings.db + spblob/* + persistent.sqlite, hermes is up, and
++// /system/bin/password '<pin>' can validate the credential against the eSE.
++// Returns:  1 = prepared AND the backup carries a lockscreen credential (.pwd) -> caller must prompt PIN
++//           0 = prepared but NO credential in the backup (empty LSKF) -> caller can restore with no PIN
++//          -1 = prep failed (stack/extract error) -> caller should abort
++int TWPartition::Prep_Restore_CE(PartitionSettings *part_settings) {
++	if (Mount_Point != "/data" || Key_Directory.empty()) {
++		LOGINFO("WIP165: Prep_Restore_CE: not a metadata-encrypted /data - nothing to prep\n");
++		return 0;
++	}
++	// 1) Bring up dm-default-key + DE keys (idempotent; safe to re-run). This mounts /data on
++	//    the dm-default-key device so the extracted spblob lands on the real fscrypt mount.
++	string hook = "/system/bin/pre_restore_data.sh";
++	if (TWFunc::Path_Exists(hook)) {
++		string result;
++		int ret = TWFunc::Exec_Cmd(hook, result, true);
++		if (ret != 0) {
++			LOGERR("WIP165: pre_restore_data.sh failed (exit %d):\n%s\n", ret, result.c_str());
++			return -1;
++		}
++		Find_Actual_Block_Device();
++	}
++	// 2) extractGlob the key material + spblob onto the LIVE /data, in dependency order, running
++	//    de_keyinstall after each layer so the next layer's dirs are readable. This is the same
++	//    domino as Restore_Tar's staged preload, but here /data was NOT wiped - we only ADD the
++	//    small key/spblob trees so de_keyinstall can walk DK -> DE0 -> CE material.
++	string Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
++	twrpTar tar;
++	tar.part_settings = part_settings;
++	tar.setdir(Mount_Point);
++	tar.setfn(Full_FileName);
++	tar.backup_name = Backup_Name;
++#ifndef TW_EXCLUDE_ENCRYPTED_BACKUPS
++	string Password;
++	DataManager::GetValue("tw_restore_password", Password);
++	if (!Password.empty())
++		tar.setpassword(Password);
++#endif
++	string de_keyinstall = "/system/bin/run_de_keyinstall.sh";
++	string kresult;
++	std::vector<std::string> stage;
++	// Stage 1: DK
++	stage.clear(); stage.push_back("unencrypted/");
++	tar.extractGlob(stage);
++	if (TWFunc::Path_Exists(de_keyinstall)) { TWFunc::Exec_Cmd(de_keyinstall, kresult, true); }
++	// Stage 2: DE0 + keystore + CE material under /data/misc
++	stage.clear(); stage.push_back("misc/");
++	tar.extractGlob(stage);
++	if (TWFunc::Path_Exists(de_keyinstall)) { TWFunc::Exec_Cmd(de_keyinstall, kresult, true); }
++	// Stage 3: CE spblob (system_de/) + locksettings.db (system/) + weaver_support marker (vendor/)
++	stage.clear(); stage.push_back("system_de/"); stage.push_back("system/"); stage.push_back("vendor/gatekeeper/");
++	tar.extractGlob(stage);
++	// 3) With /data/vendor/gatekeeper/.weaver_support now present, start hermes (IWeaver) if it is
++	//    not already running. The marker makes hermesd skip the eSE (Weaver) wipe. Do NOT start
++	//    hermes before the marker exists - a coldboot-looking gatekeeper dir triggers an eSE wipe.
++	if (TWFunc::Path_Exists("/data/vendor/gatekeeper/.weaver_support")) {
++		string hstate;
++		TWFunc::Exec_Cmd("getprop init.svc.decrypt-hermes", hstate, true);
++		if (hstate.find("running") == string::npos) {
++			LOGINFO("WIP165: starting decrypt-hermes for PIN validation (marker present -> no eSE wipe)\n");
++			TWFunc::Exec_Cmd("setprop ctl.start decrypt-hermes", kresult, true);
++			for (int i = 0; i < 40; i++) {
++				usleep(100000);
++				TWFunc::Exec_Cmd("getprop init.svc.decrypt-hermes", hstate, true);
++				if (hstate.find("running") != string::npos) break;
++			}
++			LOGINFO("WIP165: decrypt-hermes state=%s\n", hstate.c_str());
++		}
++	} else {
++		LOGINFO("WIP165: WARN .weaver_support marker not extracted - hermes NOT started (would risk eSE wipe)\n");
++	}
++	// 4) Does the backup carry a real lockscreen credential? A .pwd in the extracted spblob means
++	//    PIN/password required; only .weaver/.spblob (no .pwd) = empty LSKF (no credential).
++	bool has_credential = false;
++	DIR* d = opendir("/data/system_de/0/spblob");
++	if (d) {
++		struct dirent* ent;
++		while ((ent = readdir(d)) != NULL) {
++			size_t len = strlen(ent->d_name);
++			if (len > 4 && strcmp(ent->d_name + len - 4, ".pwd") == 0) { has_credential = true; break; }
++		}
++		closedir(d);
++	}
++	LOGINFO("WIP165: Prep_Restore_CE done - backup %s a lockscreen credential\n",
++	        has_credential ? "HAS" : "has NO");
++	return has_credential ? 1 : 0;
++}
++
+ bool TWPartition::Restore_Tar(PartitionSettings *part_settings) {
+ 	string Full_FileName;
+ 	bool ret = false;
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1327,6 +1327,32 @@
+ 	return true;
+ }
+ 
++
++// WIP165 (Plan B+): build a minimal PartitionSettings for the /data backup and run the CE prep
++// (bring up the decrypt stack + extract spblob/key material + start hermes) BEFORE the
++// destructive restore, so the GUI can validate the PIN up front. Returns Prep_Restore_CE's
++// verdict: 1 = credential present (prompt PIN), 0 = no credential (restore straight),
++// -1 = prep failed. Runs in the GUI caller thread (no nandroid thread active yet).
++int TWPartitionManager::Prep_Restore_For_PIN(const string& Restore_Name) {
++	TWPartition* dat = Find_Partition_By_Path("/data");
++	if (dat == NULL) {
++		LOGINFO("WIP165: Prep_Restore_For_PIN: /data partition not found\n");
++		return -1;
++	}
++	PartitionSettings part_settings;
++	part_settings.Backup_Folder = Restore_Name;
++	part_settings.Part = dat;
++	part_settings.partition_count = 1;
++	part_settings.total_restore_size = 0;
++	part_settings.adbbackup = false;
++	part_settings.adb_compression = 0;
++	part_settings.generate_digest = false;
++	part_settings.PM_Method = PM_RESTORE;
++	ProgressTracking progress(0);
++	part_settings.progress = &progress;
++	return dat->Prep_Restore_CE(&part_settings);
++}
++
+ int TWPartitionManager::Run_Restore(const string& Restore_Name) {
+ 	PartitionSettings part_settings;
+ 	int check_digest;
+--- a/partitions.hpp
++++ b/partitions.hpp
+@@ -219,6 +219,7 @@
+ 	bool Backup_Dump_Image(PartitionSettings *part_settings);                 // Backs up using dump_image for MTD memory types
+ 	string Get_Restore_File_System(PartitionSettings *part_settings);         // Returns the file system that was in place at the time of the backup
+ 	bool Restore_Tar(PartitionSettings *part_settings);                       // Restore using tar for file systems
++	int Prep_Restore_CE(PartitionSettings *part_settings);                     // WIP165: pre-restore CE prep (bring up stack + extract spblob) for up-front PIN validation
+ 	bool Restore_Image(PartitionSettings *part_settings);                     // Restore using dd for images
+ 	bool Check_Restore_File_MD5(const string& Filename);                      // Verifies MD5 matches for a file before restoration
+ 	bool Get_Size_Via_statfs(bool Display_Error);                             // Get Partition size, used, and free space using statfs
+@@ -337,6 +338,7 @@
+ 	int Check_Backup_Name(const std::string& Backup_Name, bool Display_Error, bool Must_Be_Unique); // Checks the current backup name to ensure that it is valid and optionally that a backup with that name doesn't already exist
+ 	int Run_Backup(bool adbbackup);                                           // Initiates a backup in the current storage
+ 	int Run_Restore(const string& Restore_Name);                              // Restores a backup
++	int Prep_Restore_For_PIN(const string& Restore_Name);                     // WIP165: pre-restore CE prep wrapper (up-front PIN validation)
+ 	bool Write_ADB_Stream_Header(uint64_t partition_count);                   // Write ADB header over twrpbu FIFO
+ 	bool Write_ADB_Stream_Trailer();                                          // Write ADB trailer over twrpbu FIFO
+ 	void Set_Restore_Files(string Restore_Name);                              // Used to gather a list of available backup partitions for the user to select for a restore

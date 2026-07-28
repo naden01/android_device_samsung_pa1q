@@ -1,20 +1,20 @@
 --- a/gui/action.cpp
 +++ b/gui/action.cpp
-@@ -213,6 +213,9 @@
+@@ -213,6 +213,10 @@
  		// WIP112: runs in the CALLER thread (cheap tar-header scan) so it can gui_changePage
  		// straight to restore_run/fbe_restore_pin without colliding with the nandroid thread.
  		ADD_ACTION(fbe_pin_check);
 +		ADD_ACTION(fbe_restore_pin_check);
 +		ADD_ACTION(fbe_backup_pin_check);
 +		ADD_ACTION(fbe_pin_validate);
++		ADD_ACTION(fbe_restore_prep);
  		ADD_ACTION(check_lockscreen_cred);
  
  		// remember actions that run in the caller thread
-@@ -1751,6 +1754,148 @@
- 	}
+@@ -1742,6 +1746,182 @@
  	return 0;
  }
-+
+ 
 +// WIP126/143: Restore button on main2 -> check whether the live /data is protected by a
 +// lockscreen credential. Runs in the CALLER thread so gui_changePage is safe. If decrypt.sh
 +// has not finished yet (/tmp/.decrypt_done absent) do nothing (button inert until ready). If CE
@@ -142,8 +142,10 @@
 +		LOGINFO("WIP126: fbe_pin_validate: OK (mode=%d)\n", mode);
 +		if (!pin.empty()) pin.assign(pin.size(), '*');
 +		DataManager::SetValue("tw_fbe_pin", "");
-+		// mode=0 = restore picker, mode=1 = backup picker
-+		if (mode == 0)
++		// mode=0 = restore picker, mode=1 = backup picker, mode=2 = restore after prep
++		if (mode == 2)
++			gui_changePage("restore_run");
++		else if (mode == 0)
 +			gui_changePage("restore");
 +		else
 +			gui_changePage("backup");
@@ -156,18 +158,52 @@
 +	}
 +	return 0;
 +}
- 
++
++// WIP165 (Plan B+): slider "Swipe to Restore" -> prepare the CE layer and validate the PIN
++// BEFORE the destructive restore. Runs in the CALLER thread so gui_changePage is safe. Calls
++// PartitionManager.Prep_Restore_For_PIN which brings up the decrypt stack, extracts the spblob
++// onto the live /data and starts hermes (marker present -> no eSE wipe). Return codes:
++//   1 = backup carries a lockscreen credential -> prompt PIN (mode=2 so a validated PIN routes
++//       on to restore_run, not the folder picker); 0 = no credential -> restore_run directly;
++//  -1 = prep failed -> show error and stay on restore_select.
++int GUIAction::fbe_restore_prep(std::string arg __unused)
++{
++	string Restore_Name;
++	DataManager::GetValue("tw_restore", Restore_Name);
++	DataManager::SetValue("tw_fbe_pin", "");
++	DataManager::SetValue("tw_password_fail", 0);
++	// No gui_msg here - keep the GUI restore log to STOCK TWRP text only. Progress/errors go to
++	// /tmp/recovery.log via LOGINFO, not to the on-screen console.
++	LOGINFO("WIP165: fbe_restore_prep: preparing encryption layer for restore...\n");
++	int need = PartitionManager.Prep_Restore_For_PIN(Restore_Name);
++	if (need < 0) {
++		LOGINFO("WIP165: fbe_restore_prep: prep FAILED - staying on restore_select\n");
++		return 0;  // stay on restore_select
++	}
++	if (need == 0) {
++		LOGINFO("WIP165: fbe_restore_prep: no credential -> restore_run\n");
++		gui_changePage("restore_run");
++		return 0;
++	}
++	DataManager::SetValue("tw_fbe_pin_mode", 2);  // 2 = restore after prep -> restore_run
++	LOGINFO("WIP165: fbe_restore_prep: credential present -> PIN page\n");
++	gui_changePage("fbe_restore_pin");
++	return 0;
++}
++
  int GUIAction::repair(std::string arg __unused)
  {
+ 	int op_status = 0;
 --- a/gui/objects.hpp
 +++ b/gui/objects.hpp
-@@ -360,6 +360,9 @@
+@@ -360,6 +360,10 @@
  	int fixsu(std::string arg);
  	int decrypt_backup(std::string arg);
  	int fbe_pin_check(std::string arg);
 +	int fbe_restore_pin_check(std::string arg);
 +	int fbe_backup_pin_check(std::string arg);
 +	int fbe_pin_validate(std::string arg);
++	int fbe_restore_prep(std::string arg);
  	int repair(std::string arg);
  	int resize(std::string arg);
  	int changefilesystem(std::string arg);
@@ -189,7 +225,16 @@
  			</button>
  
  			<button style="main_button">
-@@ -4975,7 +4975,7 @@
+@@ -2657,7 +2657,7 @@
+ 
+ 			<slider>
+ 				<text>{@swipe_restore=Swipe to Restore}</text>
+-				<action function="page">restore_run</action>
++				<action function="fbe_restore_prep"/>
+ 			</slider>
+ 
+ 			<action>
+@@ -4968,7 +4968,7 @@
  				<text>%tw_fbe_pin_display%</text>
  				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
  				<restrict minlen="1" maxlen="254"/>
@@ -198,7 +243,7 @@
  			</input>
  
  			<fill color="%accent_color%">
-@@ -4987,16 +4987,78 @@
+@@ -4980,16 +4980,78 @@
  				<text>Type the PIN/password used on the backed-up device, then press Enter (or Start).</text>
  			</text>
  

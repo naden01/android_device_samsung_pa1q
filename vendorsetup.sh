@@ -52,6 +52,14 @@ PATCH_INPUT_CURSOR="$DEVICE_PATH/patches/0016-input-cursor-reset.patch"
 # to /tmp/recovery.log. Result: clean startup with only logo and status bar visible.
 PATCH_HIDE_BOOT_MSG="$DEVICE_PATH/patches/0017-hide-boot-messages.patch"
 
+# WIP165 (Plan B+): validate the lockscreen PIN of a metadata-encrypted /data backup UP-FRONT
+# (in the GUI, on "Swipe to Restore") instead of failing mid-restore with ENOKEY. Adds
+# TWPartition::Prep_Restore_CE + TWPartitionManager::Prep_Restore_For_PIN (partition.cpp,
+# partitionmanager.cpp, partitions.hpp): brings up dm-default-key + DE keys, extractGlob's the
+# spblob onto the live /data, starts decrypt-hermes (marker present -> no eSE wipe), then the
+# GUI fbe_restore_prep action prompts + validates the PIN (re-prompt loop, no re-swipe).
+PATCH_PREP_RESTORE_CE="$DEVICE_PATH/patches/0019-prep-restore-ce.patch"
+
 apply_patch() {
     local patch="$1"
     local target="$2"
@@ -133,6 +141,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP149"
     apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
     apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
+    apply_patch "$PATCH_PREP_RESTORE_CE" "$TWRP_ROOT/partition.cpp" "WIP165"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
