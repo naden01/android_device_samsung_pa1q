@@ -109,34 +109,57 @@ if [ ! -e "$KDIR/keymaster_key_blob" ]; then
     if [ -n "$BACKUP_FOLDER" ]; then
         echo "Searching for metadata backup in: $BACKUP_FOLDER"
 
-        # Look for metadata backup image (flashimg format: metadata.*.win*)
-        META_BACKUP=$(ls "$BACKUP_FOLDER"/metadata.*.win* 2>/dev/null | head -1)
+        # WIP165 FIX: the metadata backup (metadata.f2fs.win) is a TAR-of-files
+        # (Backup_Method=BM_FILES, backup_type=0/UNCOMPRESSED), NOT a raw/gzip block
+        # image. The old code did `pigz -d | dd of=<block>` which is wrong twice: the
+        # file is not gzip, and dd'ing a tar onto the block device writes tar headers as
+        # garbage -> key never appears. Stock TWRP restores /metadata by mounting it and
+        # extracting the tar into the mount point (Restore_Tar -> extractTarFork, tardir=
+        # /metadata). We mirror that: mount /metadata, tar -x into it, restorecon.
+        # metadata is tiny (~760KB, ~243 files) so it is a single .win (never split).
+        META_BACKUP=$(ls "$BACKUP_FOLDER"/metadata.*.win 2>/dev/null | head -1)
+        [ -z "$META_BACKUP" ] && META_BACKUP=$(ls "$BACKUP_FOLDER"/metadata.*.win000 2>/dev/null | head -1)
 
         if [ -n "$META_BACKUP" ] && [ -f "$META_BACKUP" ]; then
             echo "Found metadata backup: $META_BACKUP"
-            echo "Restoring /metadata partition (this provides the encryption key)..."
+            echo "Restoring /metadata (tar extract into mounted partition)..."
 
-            # Unmount /metadata before raw write
-            umount /metadata 2>/dev/null
+            # /metadata must be MOUNTED (tar extracts into the fs, not the raw block).
+            if ! grep -qE " /metadata " /proc/mounts 2>/dev/null; then
+                mount /metadata 2>/dev/null || { echo "ERROR: cannot mount /metadata for tar extract"; exit 1; }
+            fi
 
-            # Restore metadata partition (raw block write)
-            META_BLOCK=/dev/block/bootdevice/by-name/metadata
-            if echo "$META_BACKUP" | grep -q '\.win[0-9]*$'; then
-                # Compressed backup - decompress while writing
-                pigz -d -c "$META_BACKUP" 2>&1 | dd of="$META_BLOCK" bs=1M 2>&1 | tail -3
+            # Detect compression by magic (1f 8b = gzip). This device's backup_type 0 is
+            # UNCOMPRESSED (plain tar), but handle gzip too for safety. Extract each split
+            # part in sequence (win, then win000/001/... if present).
+            extract_one() {
+                _f="$1"
+                _magic=$(dd if="$_f" bs=2 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
+                if [ "$_magic" = "1f8b" ]; then
+                    pigz -d -c "$_f" 2>/dev/null | tar -x -C /metadata 2>&1 | grep -v "Removing leading" | head -3
+                else
+                    tar -x -f "$_f" -C /metadata 2>&1 | grep -v "Removing leading" | head -3
+                fi
+            }
+            if echo "$META_BACKUP" | grep -q '\.win$'; then
+                extract_one "$META_BACKUP"
             else
-                # Uncompressed
-                dd if="$META_BACKUP" of="$META_BLOCK" bs=1M 2>&1 | tail -3
+                # split: metadata.*.win000, win001, ... each is a complete tar
+                BASE=$(echo "$META_BACKUP" | sed 's/[0-9][0-9][0-9]$//')
+                for part in "$BASE"[0-9][0-9][0-9]; do
+                    [ -f "$part" ] || continue
+                    echo "  extracting split part: $part"
+                    extract_one "$part"
+                done
             fi
             sync
-
-            # Remount /metadata to see restored key
-            mount /metadata 2>/dev/null || { echo "ERROR: cannot remount /metadata after restore"; exit 1; }
+            # Restore SELinux contexts (plain tar -x does not carry TWRP's stored labels).
+            restorecon -RF /metadata 2>/dev/null
 
             if [ -e "$KDIR/keymaster_key_blob" ]; then
-                echo "SUCCESS: metadata key restored from backup"
+                echo "SUCCESS: metadata key restored from backup (tar extract)"
             else
-                echo "ERROR: metadata backup restored but key still missing at $KDIR"
+                echo "ERROR: metadata tar extracted but key still missing at $KDIR"
                 exit 1
             fi
         else
