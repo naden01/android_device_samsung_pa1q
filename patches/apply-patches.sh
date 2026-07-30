@@ -57,6 +57,7 @@ for patch in "$_SELF"/*.patch; do
         0014-super-size.patch)           marker="WIP145:partitionmanager.cpp" ;;
         0017-hide-boot-messages.patch)   marker="update_part_details=Updating:partitionmanager.cpp" ;;
         0019-prep-restore-ce.patch)      marker="WIP165:partition.cpp" ;;
+        0020-crypto-keys-archive.patch)  marker="createKeysArchive:twrpTar.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then

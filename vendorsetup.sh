@@ -59,6 +59,16 @@ PATCH_HIDE_BOOT_MSG="$DEVICE_PATH/patches/0017-hide-boot-messages.patch"
 # spblob onto the live /data, starts decrypt-hermes (marker present -> no eSE wipe), then the
 # GUI fbe_restore_prep action prompts + validates the PIN (re-prompt loop, no re-swipe).
 PATCH_PREP_RESTORE_CE="$DEVICE_PATH/patches/0019-prep-restore-ce.patch"
+# WIP166: crypto keys companion archive. libtar writes /data entries in readdir order, so
+# system_de/0/spblob - which carries the .pwd credential marker - can land in a LATE part of the
+# split backup (observed: part 31 of 41 on a 60GB backup). The pre-restore PIN check then had to
+# scan ~46GB over USB-OTG just to learn whether a PIN is needed, which froze the GUI for minutes.
+# This writes a few-MB "<name>.<fs>.keys" archive next to the main backup holding ONLY the crypto
+# material (DK/DE0/CE0 key dirs, keystore persistent.sqlite, spblob incl. .pwd, locksettings.db,
+# .weaver_support), created with the SAME libtar path so fscrypt policies/SELinux are preserved.
+# Prep reads it instantly; pre-WIP166 backups have no .keys and fall back to the old slow scan.
+# The main archive is untouched; the 4-char ".keys" extension is skipped by Set_Restore_Files().
+PATCH_CRYPTO_KEYS_ARCHIVE="$DEVICE_PATH/patches/0020-crypto-keys-archive.patch"
 
 apply_patch() {
     local patch="$1"
@@ -142,6 +152,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
     apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
     apply_patch "$PATCH_PREP_RESTORE_CE" "$TWRP_ROOT/partition.cpp" "WIP165"
+    apply_patch "$PATCH_CRYPTO_KEYS_ARCHIVE" "$TWRP_ROOT/twrpTar.cpp" "createKeysArchive"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi

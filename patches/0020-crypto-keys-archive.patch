@@ -1,0 +1,256 @@
+--- a/twrpTar.hpp
++++ b/twrpTar.hpp
+@@ -57,6 +57,10 @@
+ 	// (writing into a policy'd dir whose key is absent fails ENOKEY -> ERROR 255). Native libtar
+ 	// dir/policy/SELinux handling is reused per entry. Returns 0 on success (read to EOF), -1 on error.
+ 	int extractGlob(const std::vector<std::string>& prefixes);
++	// WIP166: write a small companion archive with ONLY the FBE crypto material (see
++	// twrpTar.cpp). Same libtar write path as the main backup, so fscrypt policies /
++	// SELinux contexts are preserved. Returns 0 on success.
++	int createKeysArchive(const std::vector<std::string>& paths);
+ 	void setfn(string fn);
+ 	void setdir(string dir);
+ 	void setsize(unsigned long long backup_size);
+--- a/twrpTar.cpp
++++ b/twrpTar.cpp
+@@ -660,6 +660,68 @@
+ 	return 0;
+ }
+ 
++// WIP166: create a small companion archive holding ONLY the crypto material needed to unlock
++// the CE layer at restore time (and to tell whether the backup is PIN-protected at all).
++// WHY: the main /data backup is split into ~40 x 1.5GB parts and libtar writes entries in
++// readdir order, so system_de/0/spblob - which carries the .pwd credential marker - can land
++// in a LATE part (observed: part 31 of 41 on a 60GB backup). A pre-restore PIN check then has
++// to scan ~46GB over USB-OTG before it can even tell whether a PIN is needed, which froze the
++// GUI for minutes. This archive puts all of that material in ONE few-MB file next to the main
++// backup, leaving the main archive untouched.
++// Path list convention:
++//   "path/"  -> add the entry AND recurse into it (dir entry + all contents)
++//   "path"   -> add exactly ONE entry: either a lone file, or a BARE directory entry that is
++//               needed only so libtar recreates that dir WITH its fscrypt policy (a bare
++//               mkdir would leave it unencrypted -> Android init "set_policy_failed" -> bootloop).
++// Uses the same libtar write path as the main backup (TWTAR_FLAGS), so pax fscrypt-policy
++// headers, SELinux contexts and POSIX capabilities are stored exactly as in the main archive.
++// Caller must set part_settings, backup_exclusions, setdir() and setfn() first.
++// Returns 0 on success, non-zero on failure (caller should treat it as non-fatal).
++int twrpTar::createKeysArchive(const std::vector<std::string>& paths) {
++	std::vector<TarListStruct> FileList;
++	struct TarListStruct TarItem;
++	unsigned long long target_size = 0;
++	unsigned local_thread_id = 0;
++	struct stat st;
++
++	if (backup_exclusions == NULL) {
++		LOGINFO("createKeysArchive: backup_exclusions is NULL\n");
++		return -1;
++	}
++	for (size_t i = 0; i < paths.size(); ++i) {
++		string p = paths[i];
++		bool recurse = (!p.empty() && p[p.size() - 1] == '/');
++		if (recurse)
++			p.erase(p.size() - 1);
++		if (lstat(p.c_str(), &st) != 0)
++			continue;  // absent on this device (e.g. no .weaver_support / empty-LSKF) - skip
++		// The entry itself always goes in FIRST so the dir is recreated with its policy.
++		TarItem.fn = p;
++		TarItem.thread_id = 0;
++		FileList.push_back(TarItem);
++		if (recurse && S_ISDIR(st.st_mode)) {
++			// target_size stays 0 so Generate_TarList never bumps the thread id: one thread,
++			// one archive, no splitting - this file must stay a single readable archive.
++			if (Generate_TarList(p, &FileList, &target_size, &local_thread_id) < 0) {
++				LOGINFO("createKeysArchive: Generate_TarList failed for '%s'\n", p.c_str());
++				return -1;
++			}
++		}
++	}
++	if (FileList.empty()) {
++		LOGINFO("createKeysArchive: nothing to archive\n");
++		return -1;
++	}
++	use_encryption = 0;
++	use_compression = 0;
++	split_archives = 0;      // MUST stay single: prep opens it as one archive
++	thread_id = 0;
++	progress_pipe_fd = -1;   // tiny archive: no progress reporting (writes to -1 are ignored)
++	ItemList = &FileList;
++	Total_Backup_Size = 0;
++	return tarList(&FileList, 0);
++}
++
+ int twrpTar::Generate_TarList(string Path, std::vector<TarListStruct> *TarList, unsigned long long *Target_Size, unsigned *thread_id) {
+ 	DIR* d;
+ 	struct dirent* de;
+--- a/partitions.hpp
++++ b/partitions.hpp
+@@ -220,6 +220,7 @@
+ 	string Get_Restore_File_System(PartitionSettings *part_settings);         // Returns the file system that was in place at the time of the backup
+ 	bool Restore_Tar(PartitionSettings *part_settings);                       // Restore using tar for file systems
+ 	int Prep_Restore_CE(PartitionSettings *part_settings);                     // WIP165: pre-restore CE prep (bring up stack + extract spblob) for up-front PIN validation
++	bool Backup_Crypto_Keys(PartitionSettings *part_settings);                 // WIP166: companion archive with only the FBE crypto material (fast pre-restore PIN check)
+ 	bool Restore_Image(PartitionSettings *part_settings);                     // Restore using dd for images
+ 	bool Check_Restore_File_MD5(const string& Filename);                      // Verifies MD5 matches for a file before restoration
+ 	bool Get_Size_Via_statfs(bool Display_Error);                             // Get Partition size, used, and free space using statfs
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -2789,6 +2789,86 @@
+ }
+ #endif
+ 
++// WIP166: after the main /data backup, write a small companion archive (<name>.<fs>.keys) with
++// ONLY the FBE crypto material, so a pre-restore PIN check can read it instantly instead of
++// scanning the whole split backup. The main archive is NOT touched. Non-fatal: if this fails the
++// backup still succeeds, and restore falls back to scanning the main archive (old behaviour).
++//
++// What goes in (see twrpTar::createKeysArchive for the "dir/" vs "dir" convention):
++//   unencrypted/                    - systemwide DE key (DK). NONE policy, readable first.
++//   misc, misc/vold                 - bare dir entries so their DE policy is recreated, not mkdir'd.
++//   misc/vold/user_keys/            - user-0 DE + CE key material (DE0/CE0).
++//   misc/keystore/                  - persistent.sqlite: the keystore2 blob that unwraps the SP.
++//   system_de, system_de/0          - bare dir entries (policy).
++//   system_de/0/spblob/             - synthetic-password protector: .pwd (the credential marker
++//                                     that tells us a PIN exists), .spblob, .weaver.
++//   system                          - bare dir entry, needed because locksettings.db lives in it.
++//   system/locksettings.db          - sp-handle -> names the spblob files + keystore alias.
++//   vendor, vendor/gatekeeper       - bare dir entries.
++//   vendor/gatekeeper/.weaver_support - marker that lets hermes start WITHOUT wiping the eSE.
++bool TWPartition::Backup_Crypto_Keys(PartitionSettings *part_settings) {
++	if (Mount_Point != "/data" || Key_Directory.empty()) {
++		return true;  // not a metadata-encrypted /data - nothing to do
++	}
++	if (part_settings->adbbackup) {
++		LOGINFO("WIP166: adb backup - skipping crypto keys archive\n");
++		return true;
++	}
++	// <backup>/<name>.<fs>.keys - a 4-char extension, which Set_Restore_Files() skips (it only
++	// accepts 3- or 6-char "win"/"win000"), so this file never shows up as a restorable partition.
++	string keys_fn = part_settings->Backup_Folder + "/" + Backup_Name + "." + Current_File_System + ".keys";
++	if (TWFunc::Path_Exists(keys_fn))
++		unlink(keys_fn.c_str());  // createTar() uses O_EXCL
++
++	// PRE-FLIGHT: twrpTar::tarList/createTar raise gui_err("Error creating backup.") on any
++	// failure, which would put a scary (and wrong) message on screen AFTER a successful backup.
++	// The realistic failure here is a full backup medium (we just wrote tens of GB to it), so
++	// bail out QUIETLY - log only - before touching libtar if there is not enough room. 64MB is
++	// far more than this archive needs (a few MB) but cheap insurance.
++	{
++		struct statfs sfs;
++		if (statfs(part_settings->Backup_Folder.c_str(), &sfs) == 0) {
++			unsigned long long freeb = (unsigned long long)sfs.f_bavail * (unsigned long long)sfs.f_bsize;
++			if (freeb < 67108864ULL) {
++				LOGINFO("WIP166: only %llu bytes free on the backup medium - skipping crypto keys archive (restore will fall back to scanning the main archive)\n", freeb);
++				return true;
++			}
++		}
++	}
++
++	std::vector<std::string> paths;
++	paths.push_back(Backup_Path + "/unencrypted/");
++	paths.push_back(Backup_Path + "/misc");
++	paths.push_back(Backup_Path + "/misc/vold");
++	paths.push_back(Backup_Path + "/misc/vold/user_keys/");
++	paths.push_back(Backup_Path + "/misc/keystore/");
++	paths.push_back(Backup_Path + "/system_de");
++	paths.push_back(Backup_Path + "/system_de/0");
++	paths.push_back(Backup_Path + "/system_de/0/spblob/");
++	paths.push_back(Backup_Path + "/system");
++	paths.push_back(Backup_Path + "/system/locksettings.db");
++	paths.push_back(Backup_Path + "/vendor");
++	paths.push_back(Backup_Path + "/vendor/gatekeeper");
++	paths.push_back(Backup_Path + "/vendor/gatekeeper/.weaver_support");
++
++	twrpTar keys;
++	keys.part_settings = part_settings;
++	keys.backup_exclusions = &backup_exclusions;  // honours patch 0012 (frp_secret) etc.
++	keys.setdir(Backup_Path);                     // root stripped from stored paths
++	keys.setfn(keys_fn);
++	keys.partition_name = Backup_Name;
++	keys.backup_folder = part_settings->Backup_Folder;
++	if (keys.createKeysArchive(paths) != 0) {
++		LOGINFO("WIP166: WARN could not create crypto keys archive '%s' - restore will fall back to scanning the main archive\n", keys_fn.c_str());
++		unlink(keys_fn.c_str());
++		return true;  // non-fatal by design
++	}
++	tw_set_default_metadata(keys_fn.c_str());
++	LOGINFO("WIP166: crypto keys archive written: %s (%llu bytes)\n", keys_fn.c_str(),
++	        (unsigned long long)TWFunc::Get_File_Size(keys_fn));
++	return true;
++}
++
+ bool TWPartition::Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_pid) {
+ 	string Full_FileName;
+ 	twrpTar tar;
+@@ -2887,6 +2967,9 @@
+ #endif
+ 	if (tar.createTarFork(tar_fork_pid) != 0)
+ 		return false;
++	// WIP166: the main archive is complete here (createTarFork waits for its child) and
++	// /data is still mounted - write the crypto keys companion archive. Non-fatal.
++	Backup_Crypto_Keys(part_settings);
+ 	return true;
+ }
+ 
+@@ -3140,7 +3223,25 @@
+ 	//    de_keyinstall after each layer so the next layer's dirs are readable. This is the same
+ 	//    domino as Restore_Tar's staged preload, but here /data was NOT wiped - we only ADD the
+ 	//    small key/spblob trees so de_keyinstall can walk DK -> DE0 -> CE material.
++	// WIP166: prefer the small crypto-keys companion archive (<name>.<fs>.keys) written at
++	// backup time. It holds every key + the spblob in ONE few-MB file, so we read it
++	// instantly instead of scanning ~40 x 1.5GB parts over USB-OTG - system_de/0/spblob
++	// (which carries the .pwd credential marker) can sit in a LATE part, so the old scan
++	// took minutes and looked like a freeze. Backups made before WIP166 have no .keys file
++	// and fall back to scanning the main archive (previous behaviour, just slow).
+ 	string Full_FileName = part_settings->Backup_Folder + "/" + Backup_FileName;
++	{
++		string keys_fn = Full_FileName;
++		if (keys_fn.size() > 4 && keys_fn.compare(keys_fn.size() - 4, 4, ".win") == 0) {
++			keys_fn.replace(keys_fn.size() - 4, 4, ".keys");
++			if (TWFunc::Path_Exists(keys_fn)) {
++				LOGINFO("WIP166: using crypto keys archive '%s' (fast path)\n", keys_fn.c_str());
++				Full_FileName = keys_fn;
++			} else {
++				LOGINFO("WIP166: no keys archive ('%s') - scanning the main archive instead (slow)\n", keys_fn.c_str());
++			}
++		}
++	}
+ 	twrpTar tar;
+ 	tar.part_settings = part_settings;
+ 	tar.setdir(Mount_Point);
+@@ -3158,14 +3259,24 @@
+ 	// Stage 1: DK
+ 	stage.clear(); stage.push_back("unencrypted/");
+ 	tar.extractGlob(stage);
+-	if (TWFunc::Path_Exists(de_keyinstall)) { TWFunc::Exec_Cmd(de_keyinstall, kresult, true); }
++	if (TWFunc::Path_Exists(de_keyinstall)) {
++		TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++		inject_fbe_maps();  // refresh libtar policy maps with the keys just installed
++	}
+ 	// Stage 2: DE0 + keystore + CE material under /data/misc
+ 	stage.clear(); stage.push_back("misc/");
+ 	tar.extractGlob(stage);
+-	if (TWFunc::Path_Exists(de_keyinstall)) { TWFunc::Exec_Cmd(de_keyinstall, kresult, true); }
++	if (TWFunc::Path_Exists(de_keyinstall)) {
++		TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++		inject_fbe_maps();  // refresh libtar policy maps with the keys just installed
++	}
+ 	// Stage 3: CE spblob (system_de/) + locksettings.db (system/) + weaver_support marker (vendor/)
+ 	stage.clear(); stage.push_back("system_de/"); stage.push_back("system/"); stage.push_back("vendor/gatekeeper/");
+ 	tar.extractGlob(stage);
++	if (TWFunc::Path_Exists(de_keyinstall)) {
++		TWFunc::Exec_Cmd(de_keyinstall, kresult, true);
++		inject_fbe_maps();
++	}
+ 	// 3) With /data/vendor/gatekeeper/.weaver_support now present, start hermes (IWeaver) if it is
+ 	//    not already running. The marker makes hermesd skip the eSE (Weaver) wipe. Do NOT start
+ 	//    hermes before the marker exists - a coldboot-looking gatekeeper dir triggers an eSE wipe.
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1013,6 +1013,7 @@
+ 	ext.push_back("md5");
+ 	ext.push_back("sha2");
+ 	ext.push_back("info");
++	ext.push_back("keys");  // WIP166: crypto keys companion archive
+ 
+ 	gui_msg("backup_clean=Backup Failed. Cleaning Backup Folder.");
+ 
