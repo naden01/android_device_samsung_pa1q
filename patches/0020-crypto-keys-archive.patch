@@ -191,7 +191,18 @@
  	return true;
  }
  
-@@ -3140,7 +3223,25 @@
+@@ -3125,6 +3208,10 @@
+ 	// 1) Bring up dm-default-key + DE keys (idempotent; safe to re-run). This mounts /data on
+ 	//    the dm-default-key device so the extracted spblob lands on the real fscrypt mount.
+ 	//    Pass the backup folder as $1 so pre_restore_data.sh can find metadata backup if needed.
++	// WIP166.1: After Format Data, /system + /vendor are unmounted. Mount them FIRST so
++	// pre_restore_data.sh + de_keyinstall + decrypt-hermes (below) are accessible.
++	PartitionManager.Mount_By_Path("/system", true);
++	PartitionManager.Mount_By_Path("/vendor", true);
+ 	string hook = "/system/bin/pre_restore_data.sh";
+ 	if (TWFunc::Path_Exists(hook)) {
+ 		string cmd = hook + " '" + part_settings->Backup_Folder + "'";
+@@ -3140,7 +3227,25 @@
  	//    de_keyinstall after each layer so the next layer's dirs are readable. This is the same
  	//    domino as Restore_Tar's staged preload, but here /data was NOT wiped - we only ADD the
  	//    small key/spblob trees so de_keyinstall can walk DK -> DE0 -> CE material.
@@ -217,7 +228,7 @@
  	twrpTar tar;
  	tar.part_settings = part_settings;
  	tar.setdir(Mount_Point);
-@@ -3158,14 +3259,24 @@
+@@ -3158,14 +3263,24 @@
  	// Stage 1: DK
  	stage.clear(); stage.push_back("unencrypted/");
  	tar.extractGlob(stage);
