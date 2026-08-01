@@ -1,0 +1,280 @@
+--- a/twrpTar.hpp
++++ b/twrpTar.hpp
+@@ -57,6 +57,10 @@
+ 	// (writing into a policy'd dir whose key is absent fails ENOKEY -> ERROR 255). Native libtar
+ 	// dir/policy/SELinux handling is reused per entry. Returns 0 on success (read to EOF), -1 on error.
+ 	int extractGlob(const std::vector<std::string>& prefixes);
++	// WIP166: write a small companion archive holding ONLY the FBE crypto material, so the
++	// staged preload in Restore_Tar reads a ~2MB file instead of re-reading the whole (possibly
++	// 60GB / 41-part) main archive once per stage. See twrpTar.cpp for the path convention.
++	int createKeysArchive(const std::vector<std::string>& paths);
+ 	void setfn(string fn);
+ 	void setdir(string dir);
+ 	void setsize(unsigned long long backup_size);
+--- a/twrpTar.cpp
++++ b/twrpTar.cpp
+@@ -705,6 +705,72 @@
+ 	return file_count;
+ }
+ 
++// WIP166: build a small companion archive with ONLY the crypto material needed to bring the
++// three FBE layers online (DK -> DE0 -> CE0). Written through the SAME libtar path as the main
++// backup (TWTAR_FLAGS), so the pax fscrypt-policy headers and SELinux contexts are preserved -
++// a shell tar would drop them and the restored dirs would come back unencrypted
++// (Android init "set_policy_failed:/data/system" -> bootloop).
++//
++// Path convention:
++//   "dir/"  -> add the dir entry AND recurse into it
++//   "dir"   -> add EXACTLY ONE entry (a bare dir, or a single file)
++// The bare-dir form matters: Generate_TarList lists a directory's CONTENTS but never the
++// directory itself, so without an explicit entry libtar would recreate the parent with a plain
++// mkdir - no fscrypt policy - and the main pass then hits EEXIST and skips the policy.
++//
++// Paths must be ABSOLUTE: tarList() lstat()s each entry by its stored fn, and TWRP's cwd is "/".
++// split_archives=0 forces include_root_dir=false in tarList(), so addFile() runs the stored
++// "/data/misc/..." through Strip_Root_Dir() and the ARCHIVE path becomes "/misc/..." - exactly
++// what extractGlob()'s normalisation (strip leading '/', then a leading "data/") expects.
++// Returns 0 on success, -1 on failure.
++int twrpTar::createKeysArchive(const std::vector<std::string>& paths) {
++	std::vector<TarListStruct> FileList;
++	struct TarListStruct TarItem;
++	unsigned long long target_size = 0;
++	unsigned local_thread_id = 0;
++	struct stat st;
++
++	if (backup_exclusions == NULL) {
++		LOGINFO("createKeysArchive: backup_exclusions is NULL\n");
++		return -1;
++	}
++
++	for (size_t i = 0; i < paths.size(); ++i) {
++		string p = paths[i];
++		bool recurse = (!p.empty() && p[p.size() - 1] == '/');
++		if (recurse)
++			p.erase(p.size() - 1);
++		if (lstat(p.c_str(), &st) != 0)
++			continue;                       // absent on this device - skip, not an error
++		TarItem.fn = p;
++		TarItem.thread_id = 0;
++		FileList.push_back(TarItem);        // the entry itself (carries the fscrypt policy)
++		if (recurse && S_ISDIR(st.st_mode)) {
++			if (Generate_TarList(p, &FileList, &target_size, &local_thread_id) < 0) {
++				LOGINFO("createKeysArchive: Generate_TarList failed for '%s'\n", p.c_str());
++				return -1;
++			}
++		}
++	}
++
++	if (FileList.empty()) {
++		LOGINFO("createKeysArchive: nothing to archive\n");
++		return -1;
++	}
++
++	use_encryption = 0;
++	userdata_encryption = 0;
++	use_compression = 0;
++	split_archives = 0;                     // single file; also -> include_root_dir=false
++	thread_id = 0;
++	progress_pipe_fd = -1;                  // in-process, no progress pipe
++	ItemList = &FileList;
++	Total_Backup_Size = 0;
++
++	LOGINFO("createKeysArchive: %zu entries -> '%s'\n", FileList.size(), tarfn.c_str());
++	return tarList(&FileList, 0);
++}
++
+ int twrpTar::extractTar() {
+ 	char* charRootDir = (char*) tardir.c_str();
+ 	if (openTar() == -1)
+--- a/partitions.hpp
++++ b/partitions.hpp
+@@ -214,6 +214,7 @@
+ 	bool Wipe_Data_Without_Wiping_Media_Func(const string& parent);           // Uses rm -rf to wipe but does not wipe /data/media
+ 	void Wipe_Crypto_Key();                                                   // Wipe crypto key from either footer or block device
+ 	bool Backup_Tar(PartitionSettings *part_settings, pid_t *tar_fork_pid);   // Backs up using tar for file systems
++	bool Backup_Crypto_Keys(PartitionSettings *part_settings);                // WIP166: companion <name>.<fs>.keys archive (fast staged FBE preload on restore)
+ 	bool Backup_Image(PartitionSettings *part_settings);                      // Backs up using raw read/write for emmc memory types
+ 	bool Raw_Read_Write(PartitionSettings *part_settings);
+ 	bool Backup_Dump_Image(PartitionSettings *part_settings);                 // Backs up using dump_image for MTD memory types
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -2887,6 +2887,90 @@
+ #endif
+ 	if (tar.createTarFork(tar_fork_pid) != 0)
+ 		return false;
++#ifdef TW_INCLUDE_CRYPTO
++	// WIP166: write the companion crypto-keys archive. createTarFork() BLOCKS (Wait_For_Child),
++	// so the main archive is complete and /data is still mounted at this point. Non-fatal.
++	Backup_Crypto_Keys(part_settings);
++#endif
++	return true;
++}
++
++// WIP166: right after the main /data archive is written, emit a small companion archive
++// <name>.<fs>.keys holding ONLY the FBE crypto material.
++//
++// Why: Restore_Tar's staged preload must load DK -> DE0 -> CE0 BEFORE the main extract, and the
++// key material lives inside the backup. libtar cannot seek - tar_skip_regfile() (extract.c:292)
++// READS every skipped file's data block by block and throws it away - so each extractGlob() pass
++// physically reads the archive up to the entry it wants. On a 61GB / 41-part backup the spblob
++// sits in part 31, so stage 3 alone would read ~46GB from the (slow, ~25-30 MB/s) USB flash;
++// measured live, that scan instead aborted with rc=-1 and extracted 0 entries, which the caller
++// silently read as "backup has no credential" and the CE layer never came up.
++// Reading a ~2MB companion file makes the preload cost CONSTANT instead of proportional to the
++// backup size, and removes the split-part tail error along with the parts.
++//
++// Non-fatal by design: a missing/failed .keys file only means the preload falls back to scanning
++// the main archive (previous behaviour). It must never fail a completed backup.
++bool TWPartition::Backup_Crypto_Keys(PartitionSettings *part_settings) {
++	if (Mount_Point != "/data" || Key_Directory.empty())
++		return true;                        // only metadata-encrypted /data has FBE material
++	if (part_settings->adbbackup) {
++		LOGINFO("WIP166: adb backup - skipping keys archive\n");
++		return true;
++	}
++
++	string keys_fn = part_settings->Backup_Folder + "/" + Backup_Name + "." + Current_File_System + ".keys";
++
++	// Pre-flight free space. tarList() calls gui_err("Error creating backup.") on failure, which
++	// would put a FALSE error on screen after an otherwise successful backup - so bail quietly.
++	struct statfs fss;
++	if (statfs(part_settings->Backup_Folder.c_str(), &fss) == 0) {
++		unsigned long long freebytes = (unsigned long long)fss.f_bavail * (unsigned long long)fss.f_bsize;
++		if (freebytes < 64ULL * 1024ULL * 1024ULL) {
++			LOGINFO("WIP166: only %llu bytes free in '%s' - skipping keys archive\n",
++			        freebytes, part_settings->Backup_Folder.c_str());
++			return true;
++		}
++	}
++
++	std::vector<std::string> paths;
++	// --- DK layer: plaintext-at-rest, no policy ---
++	paths.push_back("/data/unencrypted/");
++	// --- DE0 + CE0 key blobs (DK-encrypted) ---
++	paths.push_back("/data/misc");                          // bare: policy carrier
++	paths.push_back("/data/misc/vold");                     // bare: policy carrier
++	paths.push_back("/data/misc/vold/user_keys/");          // de/0 (DE0) + ce/0/current (CE0)
++	paths.push_back("/data/misc/keystore/");                // persistent.sqlite = outer spblob layer
++	// --- CE0: sp-handle + synthetic-password blobs ---
++	paths.push_back("/data/system");                        // bare: WITHOUT this the main pass
++	                                                        // hits EEXIST on an unencrypted dir
++	                                                        // -> set_policy_failed -> bootloop
++	paths.push_back("/data/system/locksettings.db");         // sp-handle -> spblob file names
++	paths.push_back("/data/system_de");                     // bare: policy carrier
++	paths.push_back("/data/system_de/0");                   // bare: policy carrier
++	paths.push_back("/data/system_de/0/spblob/");            // <handle>.pwd/.spblob/.weaver
++	// --- IWeaver gate: hermes refuses to start without this and CE stays locked ---
++	paths.push_back("/data/vendor");                        // bare: policy carrier
++	paths.push_back("/data/vendor/gatekeeper");             // bare: policy carrier
++	paths.push_back("/data/vendor/gatekeeper/.weaver_support");
++	paths.push_back("/data/vendor/gatekeeper/.coldboot");    // fallback marker (decrypt.sh:720)
++
++	twrpTar keys_tar;
++	keys_tar.part_settings = part_settings;
++	keys_tar.setdir(Backup_Path);
++	keys_tar.setfn(keys_fn);
++	keys_tar.backup_name = Backup_Name;
++	keys_tar.partition_name = Backup_Name;
++	keys_tar.backup_folder = part_settings->Backup_Folder;
++	keys_tar.backup_exclusions = &backup_exclusions;
++
++	if (keys_tar.createKeysArchive(paths) != 0) {
++		LOGINFO("WIP166: keys archive '%s' FAILED - restore will fall back to scanning the main archive\n",
++		        keys_fn.c_str());
++		unlink(keys_fn.c_str());            // do not leave a truncated file: it would be trusted
++		return true;                        // non-fatal
++	}
++	tw_set_default_metadata(keys_fn.c_str());
++	LOGINFO("WIP166: keys archive written: '%s'\n", keys_fn.c_str());
+ 	return true;
+ }
+ 
+@@ -3232,10 +3316,51 @@
+ 				LOGINFO("WIP112: no lockscreen credential (empty LSKF path)\n");
+ 			}
+ 
++			// WIP166 FAST PATH: prefer the companion <name>.<fs>.keys archive when the backup has
++			// one. libtar CANNOT SEEK: tar_skip_regfile() (libtar/extract.c:292) walks a skipped
++			// file with `for (i = size; i > 0; i -= T_BLOCKSIZE) tar_block_read(...)`, i.e. it
++			// READS every byte it skips. So each extractGlob() below physically reads the archive
++			// from the start up to the entry it wants, and the three stages read it three times.
++			// On a 61GB / 41-part backup the spblob lives in part 31 => stage 3 alone must read
++			// ~46GB off USB flash at ~25-30 MB/s. Measured live on such a backup, that scan
++			// instead died with rc=-1 having extracted 0 entries, and the caller read the silence
++			// as "no credential" -> restore ran without a PIN -> CE never came up.
++			// The companion archive carries the same material in ~2MB, so the preload cost becomes
++			// CONSTANT instead of proportional to backup size, and the split-part tail error goes
++			// away with the parts.
++			// A SEPARATE twrpTar is deliberate: `tar` is handed to extractTarFork() below and must
++			// keep pointing at the real archive (extractGlob restores tarfn per call, but not the
++			// object's other state).
++			twrpTar keys_tar;
++			bool use_keys = false;
++			string keys_fn = Full_FileName;
++			// Backup_FileName always ends in ".win" at restore time - Set_Restore_Files() truncates
++			// split names (partitionmanager.cpp) - so this swap is safe for single AND split backups.
++			if (keys_fn.size() > 4 && keys_fn.compare(keys_fn.size() - 4, 4, ".win") == 0) {
++				keys_fn.replace(keys_fn.size() - 4, 4, ".keys");
++				if (TWFunc::Path_Exists(keys_fn)) {
++					keys_tar.part_settings = part_settings;
++					keys_tar.setdir(Backup_Path);
++					keys_tar.setfn(keys_fn);
++					keys_tar.backup_name = Backup_Name;
++					use_keys = true;
++					LOGINFO("WIP166: staged preload uses keys archive '%s'\n", keys_fn.c_str());
++				} else {
++					LOGINFO("WIP166: no keys archive ('%s') - preload scans the main archive (slow on split backups)\n",
++					        keys_fn.c_str());
++				}
++			}
++			twrpTar& ptar = use_keys ? keys_tar : tar;
++			int grc;
++
+ 			// Stage 1: systemwide DE key material (plaintext) -> install DK -> inject DK
+ 			stage.clear();
+ 			stage.push_back("unencrypted/");
+-			tar.extractGlob(stage);
++			grc = ptar.extractGlob(stage);
++			// WIP166: rc was previously discarded, so a failed scan was indistinguishable
++			// from "nothing matched" (this is how the 41-part backup silently lost its CE).
++			if (grc != 0)
++				LOGINFO("WIP166: WARN extractGlob rc=%d in stage1 (DK) - key material may be incomplete\n", grc);
+ 			TWFunc::Exec_Cmd(de_cmd, kresult, true);
+ 			LOGINFO("WIP110 stage1 (DK) de_keyinstall:\n%s\n", kresult.c_str());
+ 			inject_fbe_maps();
+@@ -3244,7 +3369,11 @@
+ 			//          -> install DE0 -> inject DK+DE0
+ 			stage.clear();
+ 			stage.push_back("misc/");
+-			tar.extractGlob(stage);
++			grc = ptar.extractGlob(stage);
++			// WIP166: rc was previously discarded, so a failed scan was indistinguishable
++			// from "nothing matched" (this is how the 41-part backup silently lost its CE).
++			if (grc != 0)
++				LOGINFO("WIP166: WARN extractGlob rc=%d in stage2 (DE0) - key material may be incomplete\n", grc);
+ 			TWFunc::Exec_Cmd(de_cmd, kresult, true);
+ 			LOGINFO("WIP110 stage2 (DE0) de_keyinstall:\n%s\n", kresult.c_str());
+ 			inject_fbe_maps();
+@@ -3261,7 +3390,11 @@
+ 			stage.clear();
+ 			stage.push_back("system_de/");
+ 			stage.push_back("system/");
+-			tar.extractGlob(stage);
++			grc = ptar.extractGlob(stage);
++			// WIP166: rc was previously discarded, so a failed scan was indistinguishable
++			// from "nothing matched" (this is how the 41-part backup silently lost its CE).
++			if (grc != 0)
++				LOGINFO("WIP166: WARN extractGlob rc=%d in stage3 (CE0) - key material may be incomplete\n", grc);
+ 			TWFunc::Exec_Cmd(de_cmd, kresult, true);
+ 			LOGINFO("WIP110 stage3 (CE0) de_keyinstall:\n%s\n", kresult.c_str());
+ 			inject_fbe_maps();
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -1013,6 +1013,7 @@
+ 	ext.push_back("md5");
+ 	ext.push_back("sha2");
+ 	ext.push_back("info");
++	ext.push_back("keys");                  // WIP166: companion crypto-keys archive
+ 
+ 	gui_msg("backup_clean=Backup Failed. Cleaning Backup Folder.");
+ 
