@@ -47,7 +47,12 @@ for patch in "$_SELF"/*.patch; do
         0006-staged-fbe-restore.patch)   marker="WIP110:partition.cpp" ;;
         0007-fbe-restore-pin.patch)      marker="WIP112:partition.cpp" ;;
         0008-fbe-restore-pin-theme.patch) marker="fbe_restore_pin:gui/theme/common/portrait.xml" ;;
-        0009-decrypt-data-helper.patch)   marker="WIP119:decrypt-data-helper:gui/action.cpp" ;;
+        # NOTE (WIP166): the marker was "WIP119:decrypt-data-helper:gui/action.cpp", but 0009
+        # adds no "WIP119" string at all, so the grep never matched and the patch was re-attempted
+        # on every run (harmless - git-apply --check / patch --forward caught it - but the
+        # idempotency skip was dead). Keyed on a comment 0009 actually adds. Verified absent from
+        # pristine gui/action.cpp and present once after the patch.
+        0009-decrypt-data-helper.patch)   marker="password-script instead of stock A12.1:gui/action.cpp" ;;
         0010-decrypt-data-button.patch)  marker="check_lockscreen_cred:gui/action.cpp" ;;
         0011-fbe-pin-validate.patch)     marker="fbe_backup_pin_check:gui/action.cpp" ;;
         0012-frp-exclude.patch)          marker="frp_secret:partition.cpp" ;;
@@ -55,6 +60,11 @@ for patch in "$_SELF"/*.patch; do
         0015-super-force-writable.patch) marker="WIP149:partitionmanager.cpp" ;;
         0016-input-cursor-reset.patch)    marker="WIP153:gui/input.cpp" ;;
         0014-super-size.patch)           marker="WIP145:partitionmanager.cpp" ;;
+        # 0017 had NO case entry at all (fell through to marker="") -> no idempotency check.
+        # It only comments existing gui_msg calls out, so it adds no WIPnnn tag; key on the
+        # commented-out form, which cannot exist before the patch. Same ERE vendorsetup.sh uses.
+        0017-hide-boot-messages.patch)   marker="// gui_msg.*update_part_details=Updating:partitionmanager.cpp" ;;
+        0018-crypto-keys-archive.patch)  marker="createKeysArchive:twrpTar.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then
