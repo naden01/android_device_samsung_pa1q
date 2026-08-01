@@ -199,6 +199,48 @@ else
     echo "/data unmounted, ready for decrypt.sh"
 fi
 
+# Step 4.5: unconditional full decrypt-stack teardown before every restore.
+#
+# Root cause (proven live 2026-08-01): any prior decrypt activity in this TWRP session
+# (boot-time decrypt, "Decrypt Data" button, a previous restore attempt) leaves the A16
+# stack running. When decrypt.sh is called again below it re-starts decrypt-qseecomd on
+# top of the already-running instance. qseecomd can't open a second TEE session ->
+# "qseecomd: poll TIMEOUT" -> vdc mountFstab returns Status(-8) up to 4x -> Weaver ends
+# up in a dirty state -> readWeaverSlot() in de_keyinstall stage3 fails -> CE key not
+# installed -> ERROR 255 when libtar hits misc_ce directories.
+#
+# Decision: always tear down the stack unconditionally, even on a fresh session where
+# nothing is running. The stop loop is a no-op for already-stopped services, so there
+# is no downside. decrypt.sh handles cold-TA start internally (retry loop), so the
+# unconditional teardown is safe and keeps the logic simple.
+echo "Step 4.5: unconditional decrypt-stack teardown (ensures clean A16 restart)..."
+# Stop in reverse dependency order (decrypt.sh start order: servicemanager -> apexservice
+# -> qseecomd -> keymint -> keystore2 -> bootctl -> vold -> hermes -> thermal -> watcher).
+for _svc in decrypt-thermal decrypt-watcher decrypt-hermes decrypt-keystore2 \
+            decrypt-vold decrypt-bootctl decrypt-keymint \
+            decrypt-apexservice decrypt-qseecomd decrypt-servicemanager; do
+    _state=$(getprop init.svc.$_svc)
+    if [ "$_state" = "running" ]; then
+        setprop ctl.stop "$_svc"
+        echo "  ctl.stop $_svc (was running)"
+    else
+        echo "  $_svc: $_state (skip)"
+    fi
+done
+# Wait for qseecomd to fully stop — it holds the Qualcomm TEE session. A new qseecomd
+# started while the session is still active hits "poll TIMEOUT" and Weaver becomes
+# unreliable for the rest of the session.
+echo "  waiting for decrypt-qseecomd to stop..."
+_n=0
+while [ "$_n" -lt 50 ] && [ "$(getprop init.svc.decrypt-qseecomd)" = "running" ]; do
+    _n=$((_n + 1)); sleep 0.1
+done
+echo "  decrypt-qseecomd: $(getprop init.svc.decrypt-qseecomd) (~$((_n * 100))ms)"
+# Hard sleep: the TEE driver needs ~1-2s to close the secure channel internally even
+# after the qseecomd process exits. Without this, the next qseecomd start still races.
+sleep 2
+echo "  decrypt stack fully stopped - ready for clean restart by decrypt.sh"
+
 # Run the decrypt.sh A16 stack to setup dm-default-key. The full decrypt.sh does:
 #   - mounts /decrypt (system_a) + /vendor
 #   - brings up A16 servicemanager/qseecomd/keymint/keystore2/bootctl/vold
