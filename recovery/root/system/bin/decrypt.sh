@@ -606,6 +606,20 @@ while [ "$mt" -lt 5 ]; do
     # poll instead of a fixed sleep 3 (exits in ~ms; bounded fallback for a slow cold mount).
     m=0; while [ "$m" -lt 30 ]; do grep -qE " /data " /proc/mounts 2>/dev/null && break; m=$((m + 1)); sleep 0.1; done
     grep -qE " /data " /proc/mounts 2>/dev/null && break
+    # WIP166 (dm-only fast-exit): pre_restore_data.sh calls us right after TWRP wiped sda59, so
+    # there is NO valid f2fs superblock to mount - mountFstab CANNOT succeed and all 5 attempts
+    # are guaranteed to fail. Measured live: 5 tries x ~6.5s = 26s of dead wait inside EVERY
+    # restore that went through Format Data (decrypt.log timestamps 00:40:43 -> 00:41:09, all
+    # Status(-8)). vold DOES build the dm-default-key device before it attempts the f2fs mount,
+    # and that device is the only thing the caller needs - it runs make_f2fs + mount itself
+    # (pre_restore_data.sh Step 5b/5c). So once the device exists, stop: the remaining retries
+    # cannot change anything. The cold-TA retry logic above is untouched for the normal boot
+    # path (TWRP_DM_ONLY unset), and if vold did NOT create the device we keep retrying, because
+    # then the failure is something other than "no superblock" and a warming TA may still fix it.
+    if [ "$TWRP_DM_ONLY" = "1" ] && [ -e /dev/block/mapper/userdata ]; then
+        echo "[dm-only: dm-default-key built; /data unmountable by design (caller formats it)] skipping $((4 - mt)) futile retries"
+        break
+    fi
     mt=$((mt + 1)); [ "$mt" -lt 5 ] && sleep 3
 done
 if grep -qE " /data " /proc/mounts 2>/dev/null; then

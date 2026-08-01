@@ -51,6 +51,15 @@ PATCH_INPUT_CURSOR="$DEVICE_PATH/patches/0016-input-cursor-reset.patch"
 # storage", "Running boot script", "Full SELinux support", "MTP Crashed". Messages still logged
 # to /tmp/recovery.log. Result: clean startup with only logo and status bar visible.
 PATCH_HIDE_BOOT_MSG="$DEVICE_PATH/patches/0017-hide-boot-messages.patch"
+# WIP166: companion crypto-keys archive (<name>.<fs>.keys) written right after the main /data
+# backup, holding ONLY the FBE key material (DK/DE0/CE0 keys, keystore, spblob, locksettings.db,
+# gatekeeper weaver markers). Restore_Tar's staged preload reads it instead of re-scanning the
+# main archive once per stage. libtar cannot seek - tar_skip_regfile() READS and discards every
+# skipped file - so on a 61GB/41-part backup stage 3 would have to read ~46GB to reach the spblob
+# in part 31. Reading a ~2MB file makes the preload cost constant, and drops the split-part
+# tail error (rc=-1 -> 0 entries -> "backup has no credential" -> CE never unlocked).
+# Old backups have no .keys and silently fall back to the previous scan.
+PATCH_CRYPTO_KEYS_ARCHIVE="$DEVICE_PATH/patches/0018-crypto-keys-archive.patch"
 
 apply_patch() {
     local patch="$1"
@@ -133,6 +142,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_SUPER_FORCE_WRITABLE" "$TWRP_ROOT/partition.cpp" "WIP149"
     apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
     apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
+    apply_patch "$PATCH_CRYPTO_KEYS_ARCHIVE" "$TWRP_ROOT/twrpTar.cpp" "createKeysArchive"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi

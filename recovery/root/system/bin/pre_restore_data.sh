@@ -261,7 +261,12 @@ attempt=0
 while [ "$attempt" -lt 3 ]; do
     attempt=$((attempt + 1))
     echo "decrypt.sh attempt $attempt..."
-    /system/bin/decrypt.sh 2>&1 | tail -20
+    # WIP166: TWRP_DM_ONLY tells decrypt.sh we only need the dm-default-key DEVICE, not a mounted
+    # /data. TWRP already wiped sda59, so there is no f2fs superblock and decrypt.sh's mountFstab
+    # retry loop (5 x ~6.5s = 26s, measured) is guaranteed to fail every single time. With the flag
+    # it exits that loop as soon as mapper/userdata exists. We format+mount it ourselves below
+    # (Step 5b/5c), which is exactly why the mount failure here is harmless.
+    TWRP_DM_ONLY=1 /system/bin/decrypt.sh 2>&1 | tail -20
     if [ -e /dev/block/mapper/userdata ]; then
         echo "dm-default-key device present after attempt $attempt"
         break
