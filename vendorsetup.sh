@@ -75,6 +75,15 @@ PATCH_CRYPTO_KEYS_ARCHIVE="$DEVICE_PATH/patches/0018-crypto-keys-archive.patch"
 # tw_filecheck paths for the TWRP-folder check. Theme-only, 6 hunks, no C++ touched - TWRP keeps
 # its own Symlink_Mount_Point = "/sdcard" internally, which nothing reads once the theme moves.
 PATCH_INTERNAL_STORAGE_MP="$DEVICE_PATH/patches/0019-internal-storage-mountpoint.patch"
+# WIP168: promote /data Storage_Path from "/data/media" to "/data/media/0" once decrypt.sh has
+# unlocked the CE layer. Setup_Data_Media() only promotes it when /data/media/0 already exists,
+# and it runs during the fstab parse while /data is still encrypted, so the field stays wrong for
+# the whole session; upstream fixes it in Decrypt_Data(), which never runs on this device.
+# Add_Remove_MTP_Storage() copies that field into the MTP message, so MTP exported /data/media and
+# Windows Explorer showed the "0"/"obb" subfolders instead of the user's files. Adds
+# Fix_Data_Storage_Path() plus a reply-less "fixstoragepath" ORS word (same FIFO-safe pattern as
+# refreshdatasz from 0001); decrypt.sh sends it right after the CE unlock.
+PATCH_FIX_STORAGE_PATH="$DEVICE_PATH/patches/0020-fix-data-storage-path.patch"
 
 apply_patch() {
     local patch="$1"
@@ -159,6 +168,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
     apply_patch "$PATCH_CRYPTO_KEYS_ARCHIVE" "$TWRP_ROOT/twrpTar.cpp" "createKeysArchive"
     apply_patch "$PATCH_INTERNAL_STORAGE_MP" "$TWRP_ROOT/gui/theme/common/portrait.xml" "tw_zip_location=/Internal Storage"
+    apply_patch "$PATCH_FIX_STORAGE_PATH" "$TWRP_ROOT/gui/gui.cpp" "fixstoragepath"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi
