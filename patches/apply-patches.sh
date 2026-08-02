@@ -66,6 +66,7 @@ for patch in "$_SELF"/*.patch; do
         0017-hide-boot-messages.patch)   marker="// gui_msg.*update_part_details=Updating:partitionmanager.cpp" ;;
         0018-crypto-keys-archive.patch)  marker="createKeysArchive:twrpTar.cpp" ;;
         0019-internal-storage-mountpoint.patch) marker="tw_zip_location=/Internal Storage:gui/theme/common/portrait.xml" ;;
+        0020-fix-data-storage-path.patch)  marker="fixstoragepath:gui/gui.cpp" ;;
         *)                              marker="" ;;
     esac
     if [ -n "$marker" ]; then
