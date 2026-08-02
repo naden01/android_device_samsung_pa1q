@@ -30,14 +30,22 @@ if [ -e "$LK" ]; then
 fi
 echo "remount_data: /data remounted; fscrypt keyring=$(cat /proc/keys 2>/dev/null | grep -c fscrypt) key(s)"
 
-# WIP77: re-bind /sdcard to /data/media/0 after remount. The GUI unmount drops the bind mount
-# (umount /data also unmounts /sdcard), so Internal Storage becomes inaccessible again (Install
-# ZIP shows empty, MTP export stops working). Re-create the bind mount here so the user can
-# Install/Backup/MTP immediately after a GUI Mount without needing a full reboot.
-mkdir -p /sdcard 2>/dev/null
-if [ -d /data/media/0 ] && ! grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
-    mount --bind /data/media/0 /sdcard 2>/dev/null \
-        && echo "remount_data: /sdcard bound to /data/media/0 (Internal Storage restored)"
+# WIP77: re-bind /data/media/0 after remount. The GUI unmount drops the bind mount (umount /data
+# also unmounts it), so Internal Storage becomes inaccessible again (Install ZIP shows empty, MTP
+# export stops working). Re-create the bind mount here so the user can Install/Backup/MTP
+# immediately after a GUI Mount without needing a full reboot.
+# WIP167: mount point renamed /sdcard -> "/Internal Storage" so the GUI shows a readable name.
+# Must stay in sync with decrypt.sh, which does the same bind on the boot path - the theme
+# (patches/0019) points tw_zip_location at this exact string, so a mismatch here leaves the
+# Install browser looking at a path nothing is mounted on after a GUI remount.
+# The guard uses `mountpoint -q`, NOT grep of /proc/mounts: the kernel escapes the space there
+# as \040 (verified live: "/dev/block/dm-8 /Internal\040Storage f2fs ..."), so a plain grep for
+# " /Internal Storage " can never match and the bind would be retried every run.
+IS_MP="/Internal Storage"
+mkdir -p "$IS_MP" 2>/dev/null
+if [ -d /data/media/0 ] && ! mountpoint -q "$IS_MP" 2>/dev/null; then
+    mount --bind /data/media/0 "$IS_MP" 2>/dev/null \
+        && echo "remount_data: '$IS_MP' bound to /data/media/0 (Internal Storage restored)"
 fi
 
 # WIP80: refresh /data + system sizes after GUI remount (statfs-only, no freeze). Same
