@@ -649,10 +649,20 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
     # and MTP export all work. The "0 MB" display may persist (TWRP caches size at boot, before
     # decrypt.sh runs), but it's cosmetic - the actual filesystem access is fully functional.
     # Manual "Refresh Sizes" in TWRP Backup menu will update the display if needed.
-    mkdir -p /sdcard 2>/dev/null
-    if [ -d /data/media/0 ] && ! grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
-        mount --bind /data/media/0 /sdcard 2>/dev/null \
-            && echo "/sdcard bound to /data/media/0 (Internal Storage now accessible for Install/Backup/MTP)"
+    # WIP167: the mount point is now "/Internal Storage" (was "/sdcard") so the GUI shows a
+    # human-readable name instead of a legacy path. patches/0019 re-points the theme's
+    # tw_zip_location / tw_filecheck defaults at the same string, so Install and the TWRP-folder
+    # check follow. TWRP's own C++ keeps Symlink_Mount_Point = "/sdcard" (partition.cpp) and may
+    # still create that dir - harmless, nothing looks at it once the theme is re-pointed.
+    # NOTE the idempotency check uses `mountpoint -q`, NOT `grep /proc/mounts`: the kernel escapes
+    # the space as \040 there (verified live: "tmpfs /tmp/Test\040Space tmpfs ..."), so a plain
+    # grep for " /Internal Storage " can never match. mountpoint takes the path as an argument,
+    # so no escaping is involved. /system/bin/mountpoint ships in toybox on this device.
+    IS_MP="/Internal Storage"
+    mkdir -p "$IS_MP" 2>/dev/null
+    if [ -d /data/media/0 ] && ! mountpoint -q "$IS_MP" 2>/dev/null; then
+        mount --bind /data/media/0 "$IS_MP" 2>/dev/null \
+            && echo "'$IS_MP' bound to /data/media/0 (Internal Storage now accessible for Install/Backup/MTP)"
     fi
 
     # WIP80: refresh /data + system sizes NOW (statfs works immediately after mount, before FBE keys).
