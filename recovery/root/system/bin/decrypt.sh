@@ -833,6 +833,34 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
     echo "remount watcher started (decrypt-watcher)"
 fi
 
+# WIP168: promote TWRP's /data Storage_Path from "/data/media" to "/data/media/0".
+# Setup_Data_Media() only does that promotion if /data/media/0 exists when it runs, and it runs
+# during the fstab parse while /data is still encrypted - its internal Mount(false) fails, so the
+# field stays at "/data/media" for the whole session (recovery.log:151 "Setting up '/data' as
+# data/media emulated storage" sits right between two "Unable to mount '/data'" lines, and
+# recovery.log:831 then prints "Storage_Path: /data/media"). Upstream re-evaluates it inside
+# Decrypt_Data(), which never runs here because WE do the decryption and only set
+# ro.crypto.fs_crypto_blkdev afterwards. Add_Remove_MTP_Storage() copies Storage_Path into the
+# MTP message, so MTP exported /data/media and Windows Explorer showed the "0" and "obb"
+# subfolders instead of the user's files.
+# Sent only now, after the CE unlock above: /data/media/0 is CE-encrypted, so this is the first
+# moment it is reachable. The earlier "refreshdatasz" send (before the FBE keys) is too early.
+# Same reply-less ORS word mechanism as refreshdatasz - patches/0020 handles it at the top of
+# ors_command_read(), before fopen(orsout), so a bare echo>orsin cannot hang the GUI.
+if [ -d /data/media/0 ]; then
+    for i in 1 2 3 4 5 6; do
+        if [ -p /system/bin/orsin ]; then
+            if printf 'fixstoragepath\n' > /system/bin/orsin 2>/dev/null; then
+                echo "storage-path fix sent (attempt $i, post-CE: /data/media -> /data/media/0)"
+                break
+            fi
+        fi
+        sleep 0.5
+    done
+else
+    echo "storage-path fix skipped (/data/media/0 not present - CE still locked?)"
+fi
+
 # WIP84: start the stock thermal-engine with our step-wise CPU config now that /vendor
 # is mounted (the binary + libs live there). Independent of /data - thermal must run
 # regardless. The engine actuates the kernel cpufreq cooling devices the DTS leaves

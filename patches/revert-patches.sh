@@ -39,6 +39,7 @@ REC="$TOP/bootable/recovery"
 #   0017-hide-boot-messages.patch        -> partitionmanager.cpp, twrp-functions.cpp, twrp.cpp, gui/action.cpp
 #   0018-crypto-keys-archive.patch       -> twrpTar.hpp, twrpTar.cpp, partitions.hpp, partition.cpp, partitionmanager.cpp
 #   0019-internal-storage-mountpoint.patch -> gui/theme/common/portrait.xml
+#   0020-fix-data-storage-path.patch      -> partitions.hpp, partitionmanager.cpp, gui/gui.cpp
 FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml gui/input.cpp twrp-functions.cpp twrp.cpp"
 
 if [ ! -d "$REC" ]; then
