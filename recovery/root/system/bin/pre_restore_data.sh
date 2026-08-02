@@ -156,14 +156,22 @@ fi
 # decrypt.sh recreates it cleanly under the (possibly just-restored) key. Mirrors the
 # format_pre.sh teardown (proven live 2026-06-24).
 
-# 1) drop the /sdcard bind (orphan mount TWRP doesn't track; it pins the dm device)
-echo "Step 1: checking /sdcard mount..."
-if grep -qE " /sdcard " /proc/mounts 2>/dev/null; then
-    echo "/sdcard is mounted, unmounting..."
-    umount /sdcard 2>&1 && echo "umount /sdcard ok" || echo "umount /sdcard failed (continuing)"
-else
-    echo "/sdcard not mounted, skip"
-fi
+# 1) drop the Internal Storage bind (orphan mount TWRP doesn't track; it pins the dm device)
+# WIP167: the bind moved from /sdcard to "/Internal Storage" (decrypt.sh / remount_data).
+# Leaving it mounted keeps the dm-default-key device held, which is what Step 3's
+# `dmctl delete userdata` then fails on. The check uses `mountpoint -q`, NOT grep of
+# /proc/mounts: the kernel escapes the space there as \040 ("/dev/block/dm-8
+# /Internal\040Storage f2fs ..."), so a plain grep for " /Internal Storage " never matches.
+# /sdcard is still handled in case a pre-WIP167 boot left a stale bind behind.
+echo "Step 1: checking Internal Storage bind..."
+for _mp in "/Internal Storage" /sdcard; do
+    if mountpoint -q "$_mp" 2>/dev/null; then
+        echo "'$_mp' is mounted, unmounting..."
+        umount "$_mp" 2>&1 && echo "umount '$_mp' ok" || echo "umount '$_mp' failed (continuing)"
+    else
+        echo "'$_mp' not mounted, skip"
+    fi
+done
 
 # 2) unmount /data (whether on raw sda59 or the dm device)
 echo "Step 2: checking /data mount..."
