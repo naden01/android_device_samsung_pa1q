@@ -32,13 +32,13 @@
 +//     recovery.log:831  Storage_Path: /data/media
 +// Upstream repairs it inside Decrypt_Data() (see the /data/media/0 block further down this
 +// file), but that path is never taken here: decrypt.sh performs the decryption and only then
-+// sets ro.crypto.fs_crypto_blkdev (decrypt.log:47), long after the fstab parse. So nothing
-+// ever re-evaluates Storage_Path.
++// sets ro.crypto.fs_crypto_blkdev, long after the fstab parse. So nothing ever re-evaluates
++// Storage_Path.
 +//
 +// Consequence: Add_Remove_MTP_Storage() copies Storage_Path into the MTP message, so MTP
-+// exported "/data/media" (recovery.log: "mtppipe add storage 65537 '/data/media'") and a
-+// Windows Explorer session showed the "0" and "obb" subdirectories instead of the user's
-+// files. Fixing Storage_Path fixes MTP, the file browser and the backup folder in one go.
++// exported "/data/media" and a Windows Explorer session showed the "0" and "obb"
++// subdirectories instead of the user's files. Fixing Storage_Path fixes MTP, the file browser
++// and the backup folder in one go.
 +//
 +// Triggered by the "fixstoragepath" ORS word, which decrypt.sh sends after the CE unlock -
 +// the earliest moment /data/media/0 is actually reachable. MTP is not auto-started on this
@@ -74,6 +74,26 @@
  void TWPartitionManager::Update_Data_Size_Fast(void) {
  	struct statfs st;
  	TWPartition* dat = Find_Partition_By_Path("/data");
+--- a/partition.cpp
++++ b/partition.cpp
+@@ -1271,8 +1271,15 @@
+ 			Make_Dir("/emmc", false);
+ 			Symlink_Mount_Point = "/emmc";
+ 		} else {
+-			Make_Dir("/sdcard", false);
+-			Symlink_Mount_Point = "/sdcard";
++			// pa1q (WIP169): the Internal Storage bind lives at "/Internal Storage" so the
++			// GUI shows a readable name instead of a legacy path. decrypt.sh and remount_data
++			// bind /data/media/0 there; keep this field in sync or TWRP creates /sdcard and
++			// bind-mounts it as well, leaving two mount points for one storage (and the
++			// wipe/format teardowns then miss one of them). A space is safe here: every
++			// consumer passes the value straight to mount(2)/umount2(2) as a single char*,
++			// never through a shell.
++			Make_Dir("/Internal Storage", false);
++			Symlink_Mount_Point = "/Internal Storage";
+ 		}
+ 		#ifdef TW_PREPARE_DATA_MEDIA_EARLY
+ 		if (Mount(false) && TWFunc::Path_Exists(Mount_Point + "/media/0")) {
 --- a/gui/gui.cpp
 +++ b/gui/gui.cpp
 @@ -468,6 +468,12 @@
@@ -89,3 +109,59 @@
  		orsout = fopen(ORS_OUTPUT_FILE, "w");
  		if (!orsout) {
  			close(ors_read_fd);
+--- a/gui/theme/common/portrait.xml
++++ b/gui/theme/common/portrait.xml
+@@ -281,7 +281,7 @@
+ 				<text>%tw_zip_location%</text>
+ 				<filter extn=".zip;.ozip;.ZIP;.OZIP" folders="1" files="1"/>
+ 				<prfxfilter prfx="Magisk-;Magisk.apk;app-release.apk;app-debug.apk" folders="1" files="1"/>
+-				<path name="tw_zip_location" default="/sdcard"/>
++				<path name="tw_zip_location" default="/Internal Storage"/>
+ 				<data name="tw_filename"/>
+ 				<selection name="tw_file"/>
+ 			</fileselector>
+@@ -291,7 +291,7 @@
+ 				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
+ 				<text>%tw_zip_location%</text>
+ 				<filter extn=".img" folders="1" files="1"/>
+-				<path name="tw_zip_location" default="/sdcard"/>
++				<path name="tw_zip_location" default="/Internal Storage"/>
+ 				<data name="tw_filename"/>
+ 				<selection name="tw_file"/>
+ 			</fileselector>
+@@ -4174,7 +4174,7 @@
+ 					<action function="set">tw_action=partitionsd</action>
+ 					<action function="set">tw_has_action2=1</action>
+ 					<action function="set">tw_action2=set</action>
+-					<action function="set">tw_action2_param=tw_zip_location=/sdcard</action>
++					<action function="set">tw_action2_param=tw_zip_location=/Internal Storage</action>
+ 					<action function="set">tw_action_text1={@partitioning_sd=Partitioning SD Card...}</action>
+ 					<action function="set">tw_action_text2={@partitioning_sd2=This will take a few minutes.}</action>
+ 					<action function="set">tw_complete_text1={@part_sd_complete=Partitioning Complete}</action>
+@@ -4215,7 +4215,7 @@
+ 				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
+ 				<text>%tw_zip_location%</text>
+ 				<filter extn=".img" folders="1" files="1"/>
+-				<path name="tw_zip_location" default="/sdcard"/>
++				<path name="tw_zip_location" default="/Internal Storage"/>
+ 				<data name="tw_filename"/>
+ 				<selection name="tw_file"/>
+ 			</fileselector>
+@@ -5810,7 +5810,7 @@
+ 					<action function="set">tw_action_text1={@change_twrp_folder_on_process=Changing TWRP folder}</action>
+ 					<action function="set">tw_complete_text1={@change_twrp_folder_after_process=TWRP folder changed to} %tw_custom_folder%</action>
+ 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
+-					<action function="set">tw_filecheck=/sdcard/%tw_custom_folder%</action>
++					<action function="set">tw_filecheck=/Internal Storage/%tw_custom_folder%</action>
+ 					<action function="set">tw_existpage=changeTwrpFolder</action>
+ 					<action function="set">tw_notexistpage=confirm_action</action>
+ 					<action function="page">filecheck</action>
+@@ -5853,7 +5853,7 @@
+ 					<action function="set">tw_action_text1={@change_twrp_folder_on_process=Changing TWRP folder}</action>
+ 					<action function="set">tw_complete_text1={@change_twrp_folder_after_process=TWRP folder changed to} TWRP</action>
+ 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
+-					<action function="set">tw_filecheck=/sdcard/TWRP</action>
++					<action function="set">tw_filecheck=/Internal Storage/TWRP</action>
+ 					<action function="set">tw_existpage=changeTwrpFolder</action>
+ 					<action function="set">tw_notexistpage=confirm_action</action>
+ 					<action function="page">filecheck</action>
