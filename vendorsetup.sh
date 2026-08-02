@@ -68,8 +68,15 @@ PATCH_CRYPTO_KEYS_ARCHIVE="$DEVICE_PATH/patches/0018-crypto-keys-archive.patch"
 # Windows Explorer showed the "0"/"obb" subfolders instead of the user's files. Adds
 # Fix_Data_Storage_Path() plus a reply-less "fixstoragepath" ORS word (same FIFO-safe pattern as
 # refreshdatasz from 0001); decrypt.sh sends it right after the CE unlock.
-# This also makes the Install browser and the backup folder follow /data/media/0, so no theme
-# patch is needed: the <path> default in portrait.xml is only a fallback for an unset variable.
+# The same patch also finishes the WIP167 mount-point rename, which needs BOTH of these:
+#   - partition.cpp: Symlink_Mount_Point "/sdcard" -> "/Internal Storage". Without it TWRP makes
+#     /sdcard and bind-mounts it too, so one storage ends up with two mount points and the
+#     wipe/format teardowns only clean one (a left-over bind pins the dm-default-key device ->
+#     mkfs on sda59 fails "In use by the system!", the bug WIP82 exists for).
+#   - portrait.xml: the tw_zip_location <path> defaults and the two tw_filecheck paths. The
+#     default is NOT a mere fallback - fileselector.cpp:88 writes it straight into the variable
+#     and lines 196/366 reset to it, and nothing in the C++ ever sets tw_zip_location, so that
+#     attribute IS the Install browse path.
 PATCH_FIX_STORAGE_PATH="$DEVICE_PATH/patches/0019-fix-data-storage-path.patch"
 
 apply_patch() {
