@@ -60,13 +60,6 @@ PATCH_HIDE_BOOT_MSG="$DEVICE_PATH/patches/0017-hide-boot-messages.patch"
 # tail error (rc=-1 -> 0 entries -> "backup has no credential" -> CE never unlocked).
 # Old backups have no .keys and silently fall back to the previous scan.
 PATCH_CRYPTO_KEYS_ARCHIVE="$DEVICE_PATH/patches/0018-crypto-keys-archive.patch"
-# WIP167: rename the Internal Storage mount point from the legacy "/sdcard" to "/Internal Storage"
-# so the GUI shows a human-readable name. decrypt.sh binds /data/media/0 there (WIP77 bind, now
-# renamed); this patch re-points the theme at the same string: tw_zip_location defaults on the
-# Install / Install-Image / flash-image fileselectors, the partition-SD action param, and the two
-# tw_filecheck paths for the TWRP-folder check. Theme-only, 6 hunks, no C++ touched - TWRP keeps
-# its own Symlink_Mount_Point = "/sdcard" internally, which nothing reads once the theme moves.
-PATCH_INTERNAL_STORAGE_MP="$DEVICE_PATH/patches/0019-internal-storage-mountpoint.patch"
 # WIP168: promote /data Storage_Path from "/data/media" to "/data/media/0" once decrypt.sh has
 # unlocked the CE layer. Setup_Data_Media() only promotes it when /data/media/0 already exists,
 # and it runs during the fstab parse while /data is still encrypted, so the field stays wrong for
@@ -75,7 +68,9 @@ PATCH_INTERNAL_STORAGE_MP="$DEVICE_PATH/patches/0019-internal-storage-mountpoint
 # Windows Explorer showed the "0"/"obb" subfolders instead of the user's files. Adds
 # Fix_Data_Storage_Path() plus a reply-less "fixstoragepath" ORS word (same FIFO-safe pattern as
 # refreshdatasz from 0001); decrypt.sh sends it right after the CE unlock.
-PATCH_FIX_STORAGE_PATH="$DEVICE_PATH/patches/0020-fix-data-storage-path.patch"
+# This also makes the Install browser and the backup folder follow /data/media/0, so no theme
+# patch is needed: the <path> default in portrait.xml is only a fallback for an unset variable.
+PATCH_FIX_STORAGE_PATH="$DEVICE_PATH/patches/0019-fix-data-storage-path.patch"
 
 apply_patch() {
     local patch="$1"
@@ -159,7 +154,6 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_INPUT_CURSOR" "$TWRP_ROOT/gui/input.cpp" "WIP153"
     apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
     apply_patch "$PATCH_CRYPTO_KEYS_ARCHIVE" "$TWRP_ROOT/twrpTar.cpp" "createKeysArchive"
-    apply_patch "$PATCH_INTERNAL_STORAGE_MP" "$TWRP_ROOT/gui/theme/common/portrait.xml" "tw_zip_location=/Internal Storage"
     apply_patch "$PATCH_FIX_STORAGE_PATH" "$TWRP_ROOT/gui/gui.cpp" "fixstoragepath"
 else
     echo "pa1q: TWRP source not found, skipping patches"
