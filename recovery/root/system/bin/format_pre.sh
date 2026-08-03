@@ -41,12 +41,33 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
 fi
 
 # 3) tear down the dm-default-key device so the raw userdata block is released.
-#    dmctl ships in the A16 dump used by decrypt.sh; vdc is the fallback.
-DMCTL=/decrypt/system/bin/dmctl
+#
+# WIP171: dmctl now ships in the ramdisk (/system/bin/dmctl + its A16 libs in
+# /system/lib64/dmctl_libs). It used to be taken from /decrypt/system/bin/dmctl, i.e. from the
+# A16 system image decrypt.sh mounts - but /decrypt is NOT guaranteed to be mounted here, and
+# the old code guarded the delete with `[ -x "$DMCTL" ]` and had NO else branch. So whenever
+# /decrypt was gone the whole teardown was skipped SILENTLY and format_pre still returned RC=0.
+# That is the long-hidden bug behind "Format Data works right after a TWRP reboot but fails
+# after installing a zip": the install leaves most partitions unmounted, /decrypt among them.
+# Symptom was always the same - format_pre.log showing only "holders: dm-8 (still held!)",
+# then make_f2fs dying with "Error: In use by the system!" / ERROR 255 / "Unable to wipe Data."
+#
+# Note umount alone can NOT free the block: verified live that with /proc/mounts clean and zero
+# open fds on dm-8, sda59 still listed dm-8 as a holder. The device-mapper node has to be
+# removed explicitly (DM_DEV_REMOVE), which is exactly what dmctl delete does.
+#
+# LD_LIBRARY_PATH must point at dmctl_libs FIRST: this is an Android 36 binary and TWRP's own
+# A12.1 libs are ABI-incompatible with it (it needs android::base::Join / basic_ifstream symbols
+# the older libbase/libc++ do not export, and A16 libbase in turn needs A16 libcutils). The
+# private directory keeps those A16 libs out of every other TWRP process - the override is
+# per-invocation only.
+DMCTL=/system/bin/dmctl
 if [ -e /dev/block/mapper/userdata ]; then
     if [ -x "$DMCTL" ]; then
-        LD_LIBRARY_PATH=/decrypt/system/lib64:/decrypt/system/bin "$DMCTL" delete userdata 2>&1 \
+        LD_LIBRARY_PATH=/system/lib64/dmctl_libs:/system/lib64 "$DMCTL" delete userdata 2>&1 \
             && echo "dmctl delete userdata ok" || echo "dmctl delete userdata failed (continuing)"
+    else
+        echo "ERROR: $DMCTL missing - dm device stays up and make_f2fs WILL fail with 'In use by the system!'"
     fi
 fi
 
