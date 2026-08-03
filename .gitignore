@@ -1,0 +1,22 @@
+# Claude Code project files - never commit these
+CLAUDE.md
+.claude/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.pyc
+
+# WIP171 exception: these are NOT build artifacts. They are stock A16 libraries pulled from the
+# firmware dump and shipped in the recovery ramdisk so /system/bin/dmctl works without /decrypt
+# being mounted. Without this exception the *.so rule above silently drops them and the build
+# produces a dmctl that cannot link.
+!recovery/root/system/lib64/dmctl_libs/*.so
+
+# Temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
