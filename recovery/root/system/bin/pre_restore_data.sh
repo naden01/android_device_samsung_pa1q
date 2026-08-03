@@ -184,14 +184,21 @@ else
 fi
 
 # 3) tear down the orphan dm-default-key device so vold can recreate it under the
-#    current metadata key. dmctl ships in the A16 dump used by decrypt.sh.
+#    current metadata key.
+# WIP171: dmctl now comes from the ramdisk, not from /decrypt/system/bin/dmctl. The old path
+# only exists while decrypt.sh's A16 system image is mounted, and /decrypt is unmounted by the
+# WIP131/146 teardown (and after a zip install) - the guard then fell through to "Skip dmctl"
+# and the orphan dm device survived. Same silent failure that broke Format Data (see
+# format_pre.sh). LD_LIBRARY_PATH points at dmctl_libs first because this is an Android 36
+# binary: TWRP's A12.1 libbase/libc++ do not export the symbols it needs, and A16 libbase in
+# turn requires A16 libcutils. Scoped per-invocation, so no other TWRP process is affected.
 echo "Step 3: checking dm-default-key device..."
 ls -la /dev/block/mapper/userdata 2>&1 || echo "userdata dm device not found"
-DMCTL=/decrypt/system/bin/dmctl
+DMCTL=/system/bin/dmctl
 echo "DMCTL path: $DMCTL, exists: $([ -x "$DMCTL" ] && echo yes || echo no)"
 if [ -e /dev/block/mapper/userdata ] && [ -x "$DMCTL" ]; then
     echo "Deleting orphan dm device userdata..."
-    LD_LIBRARY_PATH=/decrypt/system/lib64:/decrypt/system/bin "$DMCTL" delete userdata 2>&1 \
+    LD_LIBRARY_PATH=/system/lib64/dmctl_libs:/system/lib64 "$DMCTL" delete userdata 2>&1 \
         && echo "dmctl delete userdata ok" || echo "dmctl delete userdata failed (exit $?)"
 else
     echo "Skip dmctl: userdata not exists or dmctl not executable"
