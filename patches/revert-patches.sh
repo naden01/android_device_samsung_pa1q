@@ -39,7 +39,10 @@ REC="$TOP/bootable/recovery"
 #   0017-hide-boot-messages.patch        -> partitionmanager.cpp, twrp-functions.cpp, twrp.cpp, gui/action.cpp
 #   0018-crypto-keys-archive.patch       -> twrpTar.hpp, twrpTar.cpp, partitions.hpp, partition.cpp, partitionmanager.cpp
 #   0019-fix-data-storage-path.patch      -> partitions.hpp, partitionmanager.cpp, partition.cpp, gui/gui.cpp, gui/theme/common/portrait.xml
-FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/theme/common/portrait.xml gui/input.cpp twrp-functions.cpp twrp.cpp"
+#   0020-fbe-xml-pages.patch              -> gui/theme/portrait_hdpi/pages/restore.xml, gui/theme/portrait_hdpi/pages/advanced.xml
+#   0008-fbe-restore-pin-theme.patch (OF) -> gui/theme/portrait_hdpi/pages/pass.xml
+#   NOTE: gui/theme/common/portrait.xml is NOT used in OrangeFox (split theme) - not listed.
+FILES="gui/action.cpp partitions.hpp partitionmanager.cpp gui/gui.cpp partition.cpp twrpTar.cpp twrpTar.hpp gui/objects.hpp gui/input.cpp twrp-functions.cpp twrp.cpp gui/theme/portrait_hdpi/pages/restore.xml gui/theme/portrait_hdpi/pages/advanced.xml gui/theme/portrait_hdpi/pages/pass.xml gui/theme/portrait_hdpi/pages/main.xml"
 
 if [ ! -d "$REC" ]; then
     echo "pa1q-revert: bootable/recovery not found at '$REC'"

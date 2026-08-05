@@ -2,6 +2,25 @@
 # Auto-apply device-tree patches to the TWRP source tree at lunch time.
 # Runs once per lunch; idempotent (won't double-apply).
 
+# ── OrangeFox build-environment variables ─────────────────────────────────────
+# Sourced by breakfast → read by OrangeFox_A12.sh → passed as -D flags to clang.
+export OF_SCREEN_H=2340                     # S25 FHD+ 2340×1080
+export OF_STATUS_H=72
+export OF_MAINTAINER="Jamie_Naden_Maxim_Archer_Ahmed_Carlo | pa1q"
+export FOX_MAINTAINER_PATCH_VERSION="0"
+export OF_FLASHLIGHT_ENABLE=1
+export OF_FL_PATH1="/sys/devices/virtual/camera/flash/rear_flash"
+export TARGET_DEVICE_ALT="pa1q"
+export OF_ENABLE_LPTOOLS=1
+export OF_USE_LEGACY_BATTERY_SERVICES=1
+export OF_SUPPORT_OZIP_DECRYPTION=1
+export OF_ALLOW_DISABLE_NAVBAR=1
+export OF_DEFAULT_TIMEZONE="CET-1;CEST,M3.5.0,M10.5.0"
+# S25 (API 36) - bypass OrangeFox HIDL FBE stack (crashes before display init)
+export OF_SKIP_FBE_DECRYPTION_SDKVERSION=36
+export ALLOW_MISSING_DEPENDANCIES=true
+# ──────────────────────────────────────────────────────────────────────────────
+
 DEVICE_PATH="device/samsung/pa1q"
 TWRP_ROOT="bootable/recovery"
 
@@ -78,6 +97,8 @@ PATCH_CRYPTO_KEYS_ARCHIVE="$DEVICE_PATH/patches/0018-crypto-keys-archive.patch"
 #     and lines 196/366 reset to it, and nothing in the C++ ever sets tw_zip_location, so that
 #     attribute IS the Install browse path.
 PATCH_FIX_STORAGE_PATH="$DEVICE_PATH/patches/0019-fix-data-storage-path.patch"
+# WIP: OrangeFox XML pages — restore.xml slider + advanced.xml Decrypt Data visibility
+PATCH_FBE_XML_PAGES="$DEVICE_PATH/patches/0020-fbe-xml-pages.patch"
 
 apply_patch() {
     local patch="$1"
@@ -103,7 +124,7 @@ apply_patch() {
 
     echo "Applying patch: $patch -> $target"
     local dryrun_output
-    dryrun_output=$(patch -p1 -d "$TWRP_ROOT" -N --dry-run < "$patch" 2>&1)
+    dryrun_output=$(patch -p1 -d "$TWRP_ROOT" -N --dry-run --fuzz=5 -l < "$patch" 2>&1)
     local dryrun_rc=$?
 
     # Check if patch is already applied (exit code 1 + "Reversed" in output)
@@ -127,7 +148,7 @@ apply_patch() {
     fi
 
     # Dry-run passed, apply the patch
-    patch -p1 -d "$TWRP_ROOT" -N < "$patch"
+    patch -p1 -d "$TWRP_ROOT" -N --fuzz=5 -l < "$patch"
     if [ $? -eq 0 ]; then
         echo "  ✓ Applied successfully"
     else
@@ -162,6 +183,7 @@ if [ -d "$TWRP_ROOT" ]; then
     apply_patch "$PATCH_HIDE_BOOT_MSG" "$TWRP_ROOT/partitionmanager.cpp" "// gui_msg.*update_part_details=Updating"
     apply_patch "$PATCH_CRYPTO_KEYS_ARCHIVE" "$TWRP_ROOT/twrpTar.cpp" "createKeysArchive"
     apply_patch "$PATCH_FIX_STORAGE_PATH" "$TWRP_ROOT/gui/gui.cpp" "fixstoragepath"
+    apply_patch "$PATCH_FBE_XML_PAGES" "$TWRP_ROOT/gui/theme/portrait_hdpi/pages/restore.xml" "fbe_restore_prep"
 else
     echo "pa1q: TWRP source not found, skipping patches"
 fi

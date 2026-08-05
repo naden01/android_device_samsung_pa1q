@@ -4,7 +4,7 @@
  	int setbrightness(std::string arg);
  	int checkforapp(std::string arg);
  	int unmapsuperdevices(std::string arg);
-+	int check_lockscreen_cred(std::string arg); // .pwd-based button visibility
++	int check_lockscreen_cred(std::string arg); // WIP112: .pwd-based button visibility
  	int removedynamicgroups(std:: string arg);
 
  	// (originally) threaded actions
@@ -18,15 +18,24 @@
 
  		// remember actions that run in the caller thread
  		for (mapFunc::const_iterator it = mf.begin(); it != mf.end(); ++it)
-@@ -2362,6 +2363,30 @@
+@@ -3047,11 +3047,35 @@
+ int GUIAction::disableAVB2(string arg __unused) {
+ 	int op_status = 1;
+ 	operation_start("Disable vbmeta AVB2.0");
+ 	gui_highlight("disabling_AVB2=Disabling vbmeta AVB2.0...");
+ 	if (PartitionManager.Disable_AVB2(true)) {
+ 		op_status = 0;
+ 	}
+ 	operation_end(op_status);
  	return 0;
  }
-
+ //
 +
 +int GUIAction::check_lockscreen_cred(std::string arg __unused) {
-+	// Show "Decrypt Data" only when CE is credential-protected.
-+	// A .pwd file in spblob means a lockscreen PIN/password is set.
-+	// Biometric-only or no-lockscreen devices have no .pwd -> button hidden.
++	// WIP112: set tw_has_lockscreen_cred=1 if spblob carries a .pwd protector.
++	// Called on mount-page entry so the Decrypt Data button appears only when
++	// there is actually a lockscreen credential to unlock. Biometric-only and
++	// no-lockscreen devices have no .pwd in spblob -> button stays hidden.
 +	int cred = 0;
 +	DIR* dir = opendir("/data/system_de/0/spblob");
 +	if (dir) {
@@ -42,32 +51,6 @@
 +		closedir(dir);
 +	}
 +	DataManager::SetValue("tw_has_lockscreen_cred", cred);
-+	LOGINFO("check_lockscreen_cred: %d\n", cred);
++	LOGINFO("WIP112 check_lockscreen_cred: cred=%d\n", cred);
 +	return 0;
 +}
-+
- #ifndef TW_EXCLUDE_NANO
- int GUIAction::editfile(std::string arg) {
- 	if (term != NULL) {
---- a/gui/theme/common/portrait.xml
-+++ b/gui/theme/common/portrait.xml
-@@ -228,7 +228,10 @@
- 			<button style="main_button">
- 				<placement x="%indent%" y="%row13a_y%"/>
- 				<text>{@mount_btn=Mount}</text>
--				<action function="page">mount</action>
-+				<actions>
-+					<action function="check_lockscreen_cred"></action>
-+					<action function="page">mount</action>
-+				</actions>
- 			</button>
-
- 			<button style="main_button">
-@@ -2845,6 +2848,7 @@
- 				<conditions>
- 					<condition var1="tw_is_encrypted" var2="1"/>
- 					<condition var1="tw_is_decrypted" var2="0"/>
-+					<condition var1="tw_has_lockscreen_cred" var2="1"/>
- 				</conditions>
- 				<placement x="%center_x%" y="%row18a_y%"/>
- 				<text>{@decrypt_data_btn=Decrypt Data}</text>

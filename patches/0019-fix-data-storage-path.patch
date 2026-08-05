@@ -10,7 +10,7 @@
  	int usb_storage_enable(void);                                             // Enable USB storage mode
 --- a/partitionmanager.cpp
 +++ b/partitionmanager.cpp
-@@ -1980,6 +1980,63 @@
+@@ -1980,6 +1980,62 @@
  // Get_Folder_Size() walk that Update_System_Details() does - so there is no GUI
  // freeze. Triggered by the "refreshdatasz" ORS word after decrypt.sh / remount_data
  // mount /data. TWPartitionManager is a friend of TWPartition (see partitions.hpp).
@@ -66,7 +66,6 @@
 +	dat->Symlink_Path = dat->Storage_Path;
 +	DataManager::SetValue(TW_INTERNAL_PATH, "/data/media/0");
 +	DataManager::SetValue("tw_storage_path", dat->Storage_Path);
-+	DataManager::LoadTWRPFolderInfo();
 +	LOGINFO("Fix_Data_Storage_Path: /data Storage_Path -> %s\n", dat->Storage_Path.c_str());
 +	return;
 +}
@@ -109,59 +108,3 @@
  		orsout = fopen(ORS_OUTPUT_FILE, "w");
  		if (!orsout) {
  			close(ors_read_fd);
---- a/gui/theme/common/portrait.xml
-+++ b/gui/theme/common/portrait.xml
-@@ -281,7 +281,7 @@
- 				<text>%tw_zip_location%</text>
- 				<filter extn=".zip;.ozip;.ZIP;.OZIP" folders="1" files="1"/>
- 				<prfxfilter prfx="Magisk-;Magisk.apk;app-release.apk;app-debug.apk" folders="1" files="1"/>
--				<path name="tw_zip_location" default="/sdcard"/>
-+				<path name="tw_zip_location" default="/Internal Storage"/>
- 				<data name="tw_filename"/>
- 				<selection name="tw_file"/>
- 			</fileselector>
-@@ -291,7 +291,7 @@
- 				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
- 				<text>%tw_zip_location%</text>
- 				<filter extn=".img" folders="1" files="1"/>
--				<path name="tw_zip_location" default="/sdcard"/>
-+				<path name="tw_zip_location" default="/Internal Storage"/>
- 				<data name="tw_filename"/>
- 				<selection name="tw_file"/>
- 			</fileselector>
-@@ -4174,7 +4174,7 @@
- 					<action function="set">tw_action=partitionsd</action>
- 					<action function="set">tw_has_action2=1</action>
- 					<action function="set">tw_action2=set</action>
--					<action function="set">tw_action2_param=tw_zip_location=/sdcard</action>
-+					<action function="set">tw_action2_param=tw_zip_location=/Internal Storage</action>
- 					<action function="set">tw_action_text1={@partitioning_sd=Partitioning SD Card...}</action>
- 					<action function="set">tw_action_text2={@partitioning_sd2=This will take a few minutes.}</action>
- 					<action function="set">tw_complete_text1={@part_sd_complete=Partitioning Complete}</action>
-@@ -4215,7 +4215,7 @@
- 				<placement x="%indent%" y="%row3_y%" w="%content_width%" h="%fileselector_install_height%"/>
- 				<text>%tw_zip_location%</text>
- 				<filter extn=".img" folders="1" files="1"/>
--				<path name="tw_zip_location" default="/sdcard"/>
-+				<path name="tw_zip_location" default="/Internal Storage"/>
- 				<data name="tw_filename"/>
- 				<selection name="tw_file"/>
- 			</fileselector>
-@@ -5810,7 +5810,7 @@
- 					<action function="set">tw_action_text1={@change_twrp_folder_on_process=Changing TWRP folder}</action>
- 					<action function="set">tw_complete_text1={@change_twrp_folder_after_process=TWRP folder changed to} %tw_custom_folder%</action>
- 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
--					<action function="set">tw_filecheck=/sdcard/%tw_custom_folder%</action>
-+					<action function="set">tw_filecheck=/Internal Storage/%tw_custom_folder%</action>
- 					<action function="set">tw_existpage=changeTwrpFolder</action>
- 					<action function="set">tw_notexistpage=confirm_action</action>
- 					<action function="page">filecheck</action>
-@@ -5853,7 +5853,7 @@
- 					<action function="set">tw_action_text1={@change_twrp_folder_on_process=Changing TWRP folder}</action>
- 					<action function="set">tw_complete_text1={@change_twrp_folder_after_process=TWRP folder changed to} TWRP</action>
- 					<action function="set">tw_slider_text={@swipe_to_confirm=Swipe to Confirm}</action>
--					<action function="set">tw_filecheck=/sdcard/TWRP</action>
-+					<action function="set">tw_filecheck=/Internal Storage/TWRP</action>
- 					<action function="set">tw_existpage=changeTwrpFolder</action>
- 					<action function="set">tw_notexistpage=confirm_action</action>
- 					<action function="page">filecheck</action>

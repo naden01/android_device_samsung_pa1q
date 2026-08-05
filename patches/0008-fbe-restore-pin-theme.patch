@@ -1,73 +1,115 @@
---- a/gui/theme/common/portrait.xml
-+++ b/gui/theme/common/portrait.xml
-@@ -2360,13 +2360,6 @@
- 			</button>
- 
- 			<action>
--				<condition var1="tw_crypto_pwtype" op="!=" var2="0"/>
--				<actions>
--					<action function="page">restore_keymaster</action>
--				</actions>
--			</action>
--
--			<action>
- 				<condition var1="tw_restore" op="modified"/>
- 				<actions>
- 					<action function="readBackup"/>
-@@ -4946,6 +4939,56 @@
- 			</button>
- 
- 			<template name="keyboardtemplate"/>
-+		</page>
+--- a/gui/theme/portrait_hdpi/pages/pass.xml
++++ b/gui/theme/portrait_hdpi/pages/pass.xml
+@@ -375,6 +375,112 @@
+ 				<action function="overlay"/>
+ 				<action function="page">%checked_page%</action>
+ 			</action>
+ 		</page>
 +
 +		<page name="fbe_restore_pin">
-+			<template name="page"/>
++			<template name="body_num"/>
 +
-+			<text style="text_l">
-+				<placement x="%col1_x_header%" y="%row3_header_y%"/>
-+				<text>Restore</text>
++			<text style="text_ab_title">
++				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
++				<text>Restore - Enter PIN</text>
 +			</text>
 +
-+			<text style="text_m">
-+				<placement x="%col1_x_header%" y="%row4_header_y%"/>
-+				<text>Lockscreen Credential</text>
++			<text style="text_body2_hl">
++				<placement x="%col1_x_indent%" y="%row1_1_y%"/>
++				<text>Enter the lockscreen PIN/password used when this backup was created.</text>
 +			</text>
 +
-+			<text style="text_m_accent">
-+				<placement x="%center_x%" y="%row2_y%" placement="5"/>
-+				<text>This backup is protected by a lockscreen PIN/password. Enter it to restore app data:</text>
++			<text style="text_body2_fail">
++				<condition var1="tw_password_fail" var2="1"/>
++				<placement x="%col1_x_indent%" y="%row1_3_y%"/>
++				<text>Wrong PIN/password - try again</text>
 +			</text>
 +
 +			<input>
-+				<placement x="%indent%" y="%row3_input_y%" w="%content_width%" h="%input_height%"/>
++				<placement x="%col1_x_caption%" y="%row3_1_y%" w="%input_w%" h="%input_height%"/>
 +				<text>%tw_fbe_pin_display%</text>
 +				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
 +				<restrict minlen="1" maxlen="254"/>
-+				<action function="page">restore_run</action>
++				<action function="fbe_pin_validate"/>
 +			</input>
 +
-+			<fill color="%accent_color%">
-+				<placement x="%indent%" y="row4a_y" w="%content_width%" h="input_line_width" placement="1"/>
++			<fill color="%accent%">
++				<condition var1="tw_password_fail" op="!=" var2="1"/>
++				<placement x="%col1_x_caption%" y="%row3_2_y%" w="%input_w%" h="%input_line_height%" placement="1"/>
 +			</fill>
 +
-+			<text style="text_m">
-+				<placement x="%indent%" y="%row5_y%"/>
-+				<text>Type the PIN/password used on the backed-up device, then press Enter (or Start).</text>
++			<fill color="%text_fail%">
++				<condition var1="tw_password_fail" var2="1"/>
++				<placement x="%col1_x_caption%" y="%row3_2_y%" w="%input_w%" h="%input_line_height%" placement="1"/>
++			</fill>
++
++			<button style="btn_raised">
++				<placement x="%btn_raised_left_x%" y="%row_btn1_y%"/>
++				<text>Cancel</text>
++				<action function="set">tw_fbe_pin=</action>
++				<action function="page">main</action>
++			</button>
++
++			<button style="btn_raised_hl">
++				<placement x="%btn_raised_right_x%" y="%row_btn1_y%"/>
++				<text>Start</text>
++				<action function="fbe_pin_validate"/>
++			</button>
++
++			<template name="gestures_key"/>
++		</page>
++
++		<page name="fbe_backup_pin">
++			<template name="body_num"/>
++
++			<text style="text_ab_title">
++				<placement x="%col1_x_indent%" y="%ab_bc_y%"/>
++				<text>Backup - Enter PIN</text>
 +			</text>
 +
-+			<button style="main_button_half_height">
-+				<placement x="%indent%" y="%row10_y%"/>
++			<text style="text_body2_hl">
++				<placement x="%col1_x_indent%" y="%row1_1_y%"/>
++				<text>Enter the lockscreen PIN/password of this device to unlock CE data for backup.</text>
++			</text>
++
++			<text style="text_body2_fail">
++				<condition var1="tw_password_fail" var2="1"/>
++				<placement x="%col1_x_indent%" y="%row1_3_y%"/>
++				<text>Wrong PIN/password - try again</text>
++			</text>
++
++			<input>
++				<placement x="%col1_x_caption%" y="%row3_1_y%" w="%input_w%" h="%input_height%"/>
++				<text>%tw_fbe_pin_display%</text>
++				<data name="tw_fbe_pin" mask="*" maskvariable="tw_fbe_pin_display"/>
++				<restrict minlen="1" maxlen="254"/>
++				<action function="fbe_pin_validate"/>
++			</input>
++
++			<fill color="%accent%">
++				<condition var1="tw_password_fail" op="!=" var2="1"/>
++				<placement x="%col1_x_caption%" y="%row3_2_y%" w="%input_w%" h="%input_line_height%" placement="1"/>
++			</fill>
++
++			<fill color="%text_fail%">
++				<condition var1="tw_password_fail" var2="1"/>
++				<placement x="%col1_x_caption%" y="%row3_2_y%" w="%input_w%" h="%input_line_height%" placement="1"/>
++			</fill>
++
++			<button style="btn_raised">
++				<placement x="%btn_raised_left_x%" y="%row_btn1_y%"/>
 +				<text>Cancel</text>
-+				<action function="page">restore_select</action>
++				<action function="set">tw_fbe_pin=</action>
++				<action function="page">main</action>
 +			</button>
 +
-+			<button style="main_button_half_height">
-+				<placement x="%center_x%" y="%row10_y%"/>
++			<button style="btn_raised_hl">
++				<placement x="%btn_raised_right_x%" y="%row_btn1_y%"/>
 +				<text>Start</text>
-+				<action function="page">restore_run</action>
++				<action function="fbe_pin_validate"/>
 +			</button>
 +
-+			<template name="keyboardtemplate"/>
- 		</page>
- 
- 		<page name="decrypt_pattern">
++			<template name="gestures_key"/>
++		</page>
+ 	</pages>
+ </recovery>

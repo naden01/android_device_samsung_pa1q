@@ -140,6 +140,11 @@ BOARD_USES_QCOM_FBE_DECRYPTION := true
 TW_INCLUDE_FBE_METADATA_DECRYPT := false
 BOARD_USES_METADATA_PARTITION := true
 TW_SKIP_ADDITIONAL_FSTAB := true
+# S25 uses AIDL KeyMint3/Gatekeeper/Weaver — OrangeFox's built-in HIDL FBE stack
+# crashes before the display initialises (bootloader warning never appears on boot).
+# This flag makes OrangeFox skip its own FBE path on SDK>=36 and defer to our
+# custom decrypt.sh / de_keyinstall / hermesd A16 stack.
+OF_SKIP_FBE_DECRYPTION_SDKVERSION := 36
 
 # Custom recovery binary: apexservice stub for the A16-stack /data decrypt. The A16
 # keystore2 (run from the firmware dump by decrypt.sh) blocks during startup on
