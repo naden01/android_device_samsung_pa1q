@@ -19,6 +19,8 @@ export OF_DEFAULT_TIMEZONE="CET-1;CEST,M3.5.0,M10.5.0"
 # S25 (API 36) - bypass OrangeFox HIDL FBE stack (crashes before display init)
 export OF_SKIP_FBE_DECRYPTION_SDKVERSION=36
 export ALLOW_MISSING_DEPENDANCIES=true
+export FOX_USE_SAMSUNG_SPECIAL=1
+export FOX_VANILLA_BUILD=1
 # ──────────────────────────────────────────────────────────────────────────────
 
 DEVICE_PATH="device/samsung/pa1q"
