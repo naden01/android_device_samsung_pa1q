@@ -175,7 +175,10 @@ LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/
 # subshell/exec ONLY - if any A12 toybox (timeout, sh, logcat) inherits the A16 lib
 # path it loads a mismatched A16 libc++ and SIGSEGVs (this exact bug made vdc/service
 # "segfault"; they are fine without the poisoning).
-lrun() { ( export LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system; exec "$LK" "$@" ); }
+# WIP176: LD_PRELOAD libicu_stub.so to provide ucol_setStrength_android + sqlite3_changes64.
+# These symbols are missing from One UI 9's libandroidicu.so and libsqlite.so but required by
+# libsqlite.so and keystore2. The stub provides both, allowing de_keyinstall to link successfully.
+lrun() { ( export LD_PRELOAD=/system/lib64/libicu_stub.so LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system; exec "$LK" "$@" ); }
 
 # Read one key=value from a build.prop file ($1=file, $2=key). Prints the value (everything
 # after the first '='), or nothing if the file/key is absent. build.prop is flat key=value
