@@ -283,6 +283,19 @@ if [ ! -e /vendor/etc/vintf/manifest.xml ]; then
     mount --bind /tmp/vintf_src /vendor/etc/vintf && echo "vintf overlay bound (strongbox stripped)"
 fi
 
+# WIP173: Android 17 libsqlite.so compatibility fix
+# libsqlite.so from Android 17 requires ucol_setStrength_android symbol from libandroidicu.so,
+# but Samsung forgot to export this function in One UI 9. Recovery's libsqlite.so doesn't have
+# this issue BUT lacks sqlite3_changes64 that keystore2 needs. Solution: use the original
+# Android 17 libsqlite.so (has sqlite3_changes64) with LD_PRELOAD of libicu_stub.so that
+# provides the missing ucol_setStrength_android symbol as a no-op stub.
+if [ -e "/system/lib64/libicu_stub.so" ]; then
+    export LD_PRELOAD=/system/lib64/libicu_stub.so
+    echo "icu-stub: LD_PRELOAD set to provide ucol_setStrength_android stub"
+else
+    echo "icu-stub: WARN: libicu_stub.so not found, decrypt may fail on One UI 9"
+fi
+
 # 3. keystore2 prereqs: DB dir, and it blocks/aborts without boot_completed/apexd
 mkdir -p /tmp/misc/keystore /metadata/keystore /data/vendor/keymaster 2>/dev/null
 

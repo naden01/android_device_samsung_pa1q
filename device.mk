@@ -44,6 +44,11 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     de_keyinstall
 
+# libicu_stub - provides ucol_setStrength_android symbol missing in One UI 9's libandroidicu.so
+# Allows Android 17 libsqlite.so to load without linker errors. Loaded via LD_PRELOAD in decrypt.sh.
+PRODUCT_PACKAGES += \
+    libicu_stub
+
 # Recovery scripts for the device tree (decrypt.sh is the main A16-stack orchestrator;
 # pre_restore_data.sh is a hook TWRP calls before Restore /data to setup dm-default-key
 # + FBE keys so file-based restore writes through the metadata-encryption layer).

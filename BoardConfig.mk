@@ -156,6 +156,11 @@ TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES += $(TARGET_OUT_EXECUTABLES)/apexserv
 # hal_run.sh; same system-binary + relink model as the apexservice stub above.
 TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES += $(TARGET_OUT_EXECUTABLES)/de_keyinstall
 
+# libicu_stub: provides ucol_setStrength_android symbol missing in One UI 9's libandroidicu.so.
+# Allows Android 17 libsqlite.so to load without "cannot locate symbol" linker errors.
+# Loaded via LD_PRELOAD before starting vold/keystore2 in decrypt.sh.
+TW_RECOVERY_ADDITIONAL_RELINK_LIBRARY_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libicu_stub.so
+
 # Display
 TW_BRIGHTNESS_PATH := "/sys/class/backlight/panel0-backlight/brightness"
 TW_FRAMERATE := 120
