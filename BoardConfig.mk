@@ -158,7 +158,9 @@ TW_RECOVERY_ADDITIONAL_RELINK_BINARY_FILES += $(TARGET_OUT_EXECUTABLES)/de_keyin
 
 # libicu_stub: provides ucol_setStrength_android symbol missing in One UI 9's libandroidicu.so.
 # Allows Android 17 libsqlite.so to load without "cannot locate symbol" linker errors.
-# Loaded via LD_PRELOAD before starting vold/keystore2 in decrypt.sh.
+# Also provides sqlite3_changes64 (forwarding wrapper around sqlite3_changes) which is missing
+# from both recovery and Android 17 libsqlite.so but required by keystore2.
+# Loaded via LD_PRELOAD before starting vold/keystore2 in hal_run.sh.
 TW_RECOVERY_ADDITIONAL_RELINK_LIBRARY_FILES += $(TARGET_OUT_SHARED_LIBRARIES)/libicu_stub.so
 
 # Display
