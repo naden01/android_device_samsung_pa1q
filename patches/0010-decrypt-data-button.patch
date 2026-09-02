@@ -4,7 +4,7 @@
  	int setbrightness(std::string arg);
  	int checkforapp(std::string arg);
  	int unmapsuperdevices(std::string arg);
-+	int check_lockscreen_cred(std::string arg); // .pwd-based button visibility
++	int check_lockscreen_cred(std::string arg); // Android 17: subdirs in system_de/0
  	int removedynamicgroups(std:: string arg);
 
  	// (originally) threaded actions
@@ -24,17 +24,24 @@
 
 +
 +int GUIAction::check_lockscreen_cred(std::string arg __unused) {
-+	// Show "Decrypt Data" only when CE is credential-protected.
-+	// A .pwd file in spblob means a lockscreen PIN/password is set.
-+	// Biometric-only or no-lockscreen devices have no .pwd -> button hidden.
++	// WIP176: Android 17 (One UI 9) changed synthetic password structure - directory
++	// and file names are now encrypted. Check for subdirectories in /data/system_de/0/
++	// instead of .pwd files in the non-existent spblob/ directory.
 +	int cred = 0;
-+	DIR* dir = opendir("/data/system_de/0/spblob");
++	DIR* dir = opendir("/data/system_de/0");
 +	if (dir) {
 +		struct dirent* ent;
 +		while ((ent = readdir(dir)) != NULL) {
 +			const char* n = ent->d_name;
-+			size_t len = strlen(n);
-+			if (len > 4 && strcmp(n + len - 4, ".pwd") == 0) {
++			// Skip . and ..
++			if (strcmp(n, ".") == 0 || strcmp(n, "..") == 0) {
++				continue;
++			}
++			// Check if this is a directory (synthetic password blob container)
++			std::string full_path = std::string("/data/system_de/0/") + n;
++			struct stat st;
++			if (stat(full_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
++				// Found a subdirectory - indicates lockscreen credential exists
 +				cred = 1;
 +				break;
 +			}
