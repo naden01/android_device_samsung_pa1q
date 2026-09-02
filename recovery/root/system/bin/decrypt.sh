@@ -283,23 +283,16 @@ if [ ! -e /vendor/etc/vintf/manifest.xml ]; then
     mount --bind /tmp/vintf_src /vendor/etc/vintf && echo "vintf overlay bound (strongbox stripped)"
 fi
 
-# WIP174: Android 17 libsqlite.so compatibility fix
-# libsqlite.so from Android 17 requires ucol_setStrength_android symbol which doesn't exist.
-# LD_PRELOAD doesn't work because init services bypass shell env. Solution: bind-mount overlay
-# that replaces A17 libsqlite.so with recovery version (which lacks the broken symbol dependency).
-# Recovery libsqlite is older but still has sqlite3_changes64 needed by keystore2.
-if [ -e "/system/lib64/libsqlite.so" ]; then
-    rm -rf /tmp/lib64_overlay
-    mkdir -p /tmp/lib64_overlay
-    # Copy recovery libsqlite.so to overlay
-    cp /system/lib64/libsqlite.so /tmp/lib64_overlay/libsqlite.so
-    # Bind mount over the broken A17 version
-    mount --bind /tmp/lib64_overlay/libsqlite.so "$SYS/system/lib64/libsqlite.so" \
-        && echo "sqlite-compat: replaced A17 libsqlite.so with recovery version via bind mount" \
-        || echo "sqlite-compat: WARN: failed to bind mount libsqlite.so"
-else
-    echo "sqlite-compat: WARN: recovery libsqlite.so not found"
-fi
+# WIP175: Android 17 libsqlite.so compatibility fix - REVERTED bind mount approach
+# Problem: A17 libsqlite.so requires ucol_setStrength_android (missing from A17 ICU), but
+# keystore2 also requires sqlite3_changes64 (missing from BOTH recovery and A17 libsqlite.so).
+# Neither library has changes64 - it doesn't exist in any .so. keystore2 needs it but the symbol
+# was never provided. Solution: LD_PRELOAD libicu_stub.so which now provides BOTH missing symbols:
+# - ucol_setStrength_android (no-op stub for ICU collation)
+# - sqlite3_changes64 (forwarding wrapper around sqlite3_changes, which DOES exist)
+# This lets A17 libsqlite.so load AND satisfies keystore2's changes64 dependency.
+# KEEP A17 libsqlite.so (don't bind mount) and inject the stubs via LD_PRELOAD in hal_run.sh.
+echo "sqlite-compat: using A17 libsqlite.so + libicu_stub.so for ucol_setStrength_android + sqlite3_changes64"
 
 # 3. keystore2 prereqs: DB dir, and it blocks/aborts without boot_completed/apexd
 mkdir -p /tmp/misc/keystore /metadata/keystore /data/vendor/keymaster 2>/dev/null

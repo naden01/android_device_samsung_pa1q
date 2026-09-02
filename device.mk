@@ -45,7 +45,8 @@ PRODUCT_PACKAGES += \
     de_keyinstall
 
 # libicu_stub - provides ucol_setStrength_android symbol missing in One UI 9's libandroidicu.so
-# Allows Android 17 libsqlite.so to load without linker errors. Loaded via LD_PRELOAD in decrypt.sh.
+# Allows Android 17 libsqlite.so to load without linker errors. Loaded via LD_PRELOAD in hal_run.sh.
+# Also provides sqlite3_changes64 forwarding wrapper (missing from both libsqlite.so versions).
 PRODUCT_PACKAGES += \
     libicu_stub
 
