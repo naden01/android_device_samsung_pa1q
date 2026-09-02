@@ -1,0 +1,14 @@
+// ICU stub library for One UI 9 compatibility
+// Provides ucol_setStrength_android symbol missing in Samsung's libandroidicu.so
+
+cc_library_shared {
+    name: "libicu_stub",
+    recovery_available: true,
+
+    srcs: ["ucol_stub.c"],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
