@@ -685,6 +685,7 @@ if grep -qE " /data " /proc/mounts 2>/dev/null; then
         if [ -p /system/bin/orsin ]; then
             if printf 'refreshdatasz\n' > /system/bin/orsin 2>/dev/null; then
                 echo "size refresh sent (attempt $i, early - before FBE keys)"
+                sleep 1  # WIP176: drain FIFO so fixstoragepath (sent later) isn't buffered with this
                 break
             fi
         fi
