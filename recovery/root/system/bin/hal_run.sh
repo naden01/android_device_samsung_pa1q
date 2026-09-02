@@ -28,4 +28,8 @@ if [ ! -e /vendor/bin/qseecomd ]; then
 fi
 export LD_LIBRARY_PATH="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 export ANDROID_DATA=/data ANDROID_ROOT=/system
+# WIP175: LD_PRELOAD libicu_stub.so to provide ucol_setStrength_android + sqlite3_changes64
+# These symbols are missing from A17's libandroidicu.so and libsqlite.so but required by
+# libsqlite.so and keystore2 respectively. The stub provides both.
+export LD_PRELOAD=/system/lib64/libicu_stub.so
 exec "$SYS/system/bin/bootstrap/linker64" "$@"
