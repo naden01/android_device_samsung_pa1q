@@ -283,17 +283,22 @@ if [ ! -e /vendor/etc/vintf/manifest.xml ]; then
     mount --bind /tmp/vintf_src /vendor/etc/vintf && echo "vintf overlay bound (strongbox stripped)"
 fi
 
-# WIP173: Android 17 libsqlite.so compatibility fix
-# libsqlite.so from Android 17 requires ucol_setStrength_android symbol from libandroidicu.so,
-# but Samsung forgot to export this function in One UI 9. Recovery's libsqlite.so doesn't have
-# this issue BUT lacks sqlite3_changes64 that keystore2 needs. Solution: use the original
-# Android 17 libsqlite.so (has sqlite3_changes64) with LD_PRELOAD of libicu_stub.so that
-# provides the missing ucol_setStrength_android symbol as a no-op stub.
-if [ -e "/system/lib64/libicu_stub.so" ]; then
-    export LD_PRELOAD=/system/lib64/libicu_stub.so
-    echo "icu-stub: LD_PRELOAD set to provide ucol_setStrength_android stub"
+# WIP174: Android 17 libsqlite.so compatibility fix
+# libsqlite.so from Android 17 requires ucol_setStrength_android symbol which doesn't exist.
+# LD_PRELOAD doesn't work because init services bypass shell env. Solution: bind-mount overlay
+# that replaces A17 libsqlite.so with recovery version (which lacks the broken symbol dependency).
+# Recovery libsqlite is older but still has sqlite3_changes64 needed by keystore2.
+if [ -e "/system/lib64/libsqlite.so" ]; then
+    rm -rf /tmp/lib64_overlay
+    mkdir -p /tmp/lib64_overlay
+    # Copy recovery libsqlite.so to overlay
+    cp /system/lib64/libsqlite.so /tmp/lib64_overlay/libsqlite.so
+    # Bind mount over the broken A17 version
+    mount --bind /tmp/lib64_overlay/libsqlite.so "$SYS/system/lib64/libsqlite.so" \
+        && echo "sqlite-compat: replaced A17 libsqlite.so with recovery version via bind mount" \
+        || echo "sqlite-compat: WARN: failed to bind mount libsqlite.so"
 else
-    echo "icu-stub: WARN: libicu_stub.so not found, decrypt may fail on One UI 9"
+    echo "sqlite-compat: WARN: recovery libsqlite.so not found"
 fi
 
 # 3. keystore2 prereqs: DB dir, and it blocks/aborts without boot_completed/apexd
