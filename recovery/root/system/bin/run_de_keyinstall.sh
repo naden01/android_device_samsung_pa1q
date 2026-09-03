@@ -10,7 +10,9 @@ SYS=/decrypt
 LK="$SYS/system/bin/bootstrap/linker64"
 LIBS="$SYS/system/lib64/bootstrap:$SYS/system/lib64:/vendor/lib64:/vendor/lib64/hw"
 if [ -e "$LK" ]; then
-    export LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system
+    # WIP177: LD_PRELOAD libicu_stub.so for One UI 9 - provides ucol_setStrength_android
+    # and sqlite3_changes64 symbols missing from One UI 9 but required by libsqlite.so
+    export LD_PRELOAD=/system/lib64/libicu_stub.so LD_LIBRARY_PATH="$LIBS" ANDROID_DATA=/data ANDROID_ROOT=/system
     exec "$LK" /system/bin/de_keyinstall "$@"
 else
     # Fallback: no A16 dump mounted (shouldn't happen post-decrypt) - try direct exec.
